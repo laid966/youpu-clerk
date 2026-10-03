@@ -14,6 +14,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from audit.evaluate import evaluate
 from audit.inject import (
     CLEAN_SHARE,
     DEFECT_KINDS,
@@ -117,6 +118,38 @@ def cmd_inject(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    metrics = load_metrics()
+    judged_cases = generate_reports(count=args.count, metrics=metrics, seed=args.seed)
+    cases = build_injected_dataset(judged_cases, metrics, seed=args.seed)
+    report = evaluate(cases, judged_cases, metrics)
+
+    out = Path(args.report)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(report.to_markdown(), encoding="utf-8")
+
+    print(f"评测完成：{len(cases)} 份产物，其中干净样本 {report.clean_cases} 份")
+    print()
+    print(f"  已知缺陷      {report.total_defects} 条")
+    print(f"  抓到          {report.caught_total} 条")
+    print(f"  召回率        {report.recall_overall:.1%}")
+    print(f"  精确率        {report.precision:.1%}")
+    print(f"  误报          {report.false_positives} 条（每份干净样本 {report.false_positives_per_clean_case:.3f} 条）")
+    print(
+        f"  合法变体样本  {report.hard_negative_cases} 份，承担 {report.hard_negative_false_positives} 条误报"
+        "  ← 误报率真正的考验"
+    )
+    print()
+    print("按缺陷类型的召回：")
+    for kind in DEFECT_KINDS:
+        caught, total = report.recall_by_kind.get(kind, (0, 0))
+        rate = f"{caught / total:5.1%}" if total else "    —"
+        print(f"  {kind:<22} {caught:>3} / {total:<4} {rate}")
+    print()
+    print(f"  报告 -> {out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m audit",
@@ -145,6 +178,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inject.add_argument("--sample-size", type=int, default=2, help="人读抽样条数")
     inject.set_defaults(func=cmd_inject)
+
+    eval_cmd = subparsers.add_parser(
+        "eval", help="跑评测：检查器 vs 注入的标准答案，算召回率与误报率"
+    )
+    eval_cmd.add_argument("--count", type=int, default=200, help="样本数量")
+    eval_cmd.add_argument("--seed", type=int, default=DEFAULT_SEED, help="随机种子")
+    eval_cmd.add_argument(
+        "--report", default=str(ROOT / "reports" / "detector-report.md")
+    )
+    eval_cmd.set_defaults(func=cmd_eval)
 
     return parser
 

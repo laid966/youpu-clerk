@@ -20,6 +20,7 @@ from audit.inject import (
     CLEAN_SHARE,
     DEFECT_KINDS,
     DEFECT_COUNT_WEIGHTS,
+    LEGITIMATE_VARIATIONS,
     build_injected_dataset,
     capability_report,
     to_json_line,
@@ -147,12 +148,28 @@ def test_only_expected_detectors_are_used(cases):
 # --------------------------------------------------------------------------- #
 
 
-def test_clean_cases_are_untouched(judged_cases, cases, metrics):
-    """干净样本必须与未注入的产物完全一致——否则误报率会被算歪。"""
-    for (profile, judged), case in zip(judged_cases, cases):
+def test_clean_cases_are_untouched_or_legitimately_varied(judged_cases, cases, metrics):
+    """干净样本要么原封不动，要么只带一个**合法变体**（hard negative）。
+
+    合法变体（显示取整 / 引用顺序调换 / 引用重复）不构成缺陷，
+    它们是用来给误报率加难度的——没有它们，确定性检查器在干净样本上一条都不会报，
+    误报率永远是 0，而**那个 0 是假的**：它只说明测试没难度。
+    """
+    for (_profile, judged), case in zip(judged_cases, cases):
         if not case.clean:
             continue
-        assert case.artifact == build_artifact(judged, metrics), f"{case.case_id} 被改动了"
+        original = build_artifact(judged, metrics)
+        if case.variation in (None, "none"):
+            assert case.artifact == original, f"{case.case_id} 没有变体却被改动了"
+        else:
+            assert case.variation in LEGITIMATE_VARIATIONS
+            assert case.artifact != original, f"{case.case_id} 标了变体却没有任何改动"
+
+
+def test_hard_negatives_exist(cases):
+    """合法变体必须真的存在，否则误报率的测试没有难度。"""
+    varied = [case for case in cases if case.clean and case.variation not in (None, "none")]
+    assert len(varied) >= 10, f"合法变体样本太少：{len(varied)}"
 
 
 def test_every_recorded_defect_actually_exists(judged_cases, cases, metrics):

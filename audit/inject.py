@@ -90,6 +90,55 @@ CLEAN_SHARE = 0.40
 而审计器误报一多就没人用（本项目的死穴）。
 """
 
+HARD_NEGATIVE_SHARE = 0.35
+"""干净样本里，有多大比例被施加**合法变体**。
+
+为什么需要：如果干净样本就是"原封不动的模板输出"，
+确定性检查器在它上面一条都不会报，误报率永远是 0——
+**这个 0 是假的**，它只说明测试没有难度，不说明检查器稳健。
+
+所以给一部分干净样本加上**完全合法**的变化（显示取整、引用顺序调换、引用重复），
+检查器如果把这些报成缺陷，就是真正的误报。
+这些样本在基准里仍然是 `clean: true`（没有缺陷），只是变得"更难"。
+"""
+
+# 合法变体：这些改动都不构成缺陷，检查器不该报
+LEGITIMATE_VARIATIONS: tuple[str, ...] = (
+    "rounded_value",  # 显示取整：4.2117 -> 4.21
+    "citation_reorder",  # 依据顺序调换
+    "citation_duplicate",  # 同一条依据出现两次
+)
+
+
+def apply_legitimate_variation(
+    artifact: Artifact, rng: random.Random
+) -> tuple[Artifact, str]:
+    """给产物施加一个合法变体，返回 (新产物, 变体名)。"""
+    candidates: list[tuple[str, str]] = []
+    for item in artifact.items:
+        if round(item.value, 2) != item.value:
+            candidates.append(("rounded_value", item.code))
+        if len(item.citations) >= 2:
+            candidates.append(("citation_reorder", item.code))
+        if item.citations:
+            candidates.append(("citation_duplicate", item.code))
+
+    if not candidates:
+        return artifact, "none"
+
+    variation, code = rng.choice(candidates)
+    item = artifact.item(code)
+
+    if variation == "rounded_value":
+        return replace_item(artifact, code, value=round(item.value, 2)), variation
+    if variation == "citation_reorder":
+        return replace_item(
+            artifact, code, citations=tuple(reversed(item.citations))
+        ), variation
+    return replace_item(
+        artifact, code, citations=(item.citations[0],) + item.citations
+    ), variation
+
 DEFECT_COUNT_WEIGHTS: Mapping[int, float] = {1: 0.50, 2: 0.35, 3: 0.15}
 
 
@@ -125,12 +174,14 @@ class InjectedCase:
     clean: bool
     artifact: Artifact
     defects: tuple[Defect, ...]
+    variation: str | None = None
 
     def to_dict(self) -> dict:
         return {
             "case_id": self.case_id,
             "profile": self.profile,
             "clean": self.clean,
+            "variation": self.variation,
             "defect_count": len(self.defects),
             "artifact": self.artifact.to_dict(),
             "defects": [defect.to_dict() for defect in self.defects],
@@ -664,6 +715,11 @@ def build_injected_dataset(
             used_targets.add(defect.target)
             quota[defect.kind] -= 1
 
+        variation: str | None = None
+        if not defects and rng.random() < HARD_NEGATIVE_SHARE:
+            # 干净样本也分两种：原封不动的，和施加了合法变体的（后者才是误报率的真正考验）
+            current, variation = apply_legitimate_variation(current, rng)
+
         cases.append(
             InjectedCase(
                 case_id=f"C-{index:04d}",
@@ -671,6 +727,7 @@ def build_injected_dataset(
                 clean=not defects,
                 artifact=current,
                 defects=tuple(defects),
+                variation=variation,
             )
         )
     return cases
