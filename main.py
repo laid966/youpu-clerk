@@ -19,35 +19,14 @@
 from __future__ import annotations
 
 import os
-import sys
 
 from dotenv import load_dotenv
 from langchain_deepseek import ChatDeepSeek
 
+from engine.console import ensure_utf8_console
 
-def _ensure_utf8_console() -> None:
-    """让 Windows 控制台按 UTF-8 显示中文，避免出现乱码。
-
-    如果不做这一步，在某些终端里中文会变成"涓枃"这样的乱码，
-    对一个中文项目来说体验很差。失败也不影响功能，所以静默忽略异常。
-    """
-    if sys.platform != "win32":
-        return
-    try:
-        import ctypes
-
-        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
-        ctypes.windll.kernel32.SetConsoleCP(65001)
-    except Exception:  # noqa: BLE001 — 仅仅是显示优化，失败无妨
-        pass
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except Exception:  # noqa: BLE001
-            pass
-
-
-_ensure_utf8_console()
+# Windows 控制台按 UTF-8 显示中文（与引擎 CLI 共用同一份实现）
+ensure_utf8_console()
 
 # 读取同目录下的 .env（该文件被 .gitignore 排除，永远不会提交）
 load_dotenv()

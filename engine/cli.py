@@ -19,12 +19,31 @@ import sys
 from pathlib import Path
 
 from engine.adjudicate import AdjudicationError, adjudicate
+from engine.console import ensure_utf8_console
 from engine.domain import DomainError, load_domain
 from engine.sample_gen import DEFAULT_SEED, generate_cases, write_dataset
 from engine.selfcheck import DEFAULT_SAMPLES, run_selfcheck
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DOMAIN_GLOB = "domain/*/domain.yaml"
+
+
+def _read_json_text(source: str) -> str:
+    """读 JSON 文本。
+
+    用 utf-8-sig 而不是 utf-8：Windows 上的记事本、PowerShell 的
+    `Set-Content -Encoding UTF8` 等工具会在文件开头写一个 BOM（\\ufeff），
+    用 utf-8 解出来的第一个字符就是 BOM，`json.loads` 会直接报
+    "Expecting value: line 1 column 1"。这不是用户写错了，是工具习惯问题，
+    所以由引擎这边消化掉——真实用户一定会遇到。
+    """
+    if source == "-":
+        return sys.stdin.buffer.read().decode("utf-8-sig")
+
+    path = Path(source)
+    if not path.is_file():
+        raise SystemExit(f"找不到事实文件：{path}")
+    return path.read_bytes().decode("utf-8-sig")
 
 
 def _resolve_domain_paths(args: argparse.Namespace) -> list[Path]:
@@ -100,11 +119,18 @@ def cmd_gen(args: argparse.Namespace) -> int:
 
 
 def cmd_decide(args: argparse.Namespace) -> int:
-    domain = load_domain(Path(args.domain))
-    if args.facts:
-        facts = json.loads(Path(args.facts).read_text(encoding="utf-8"))
-    else:
-        facts = json.loads(sys.stdin.read())
+    domain = load_domain(_resolve_domain_paths(args)[0])
+
+    text = _read_json_text(args.facts or "-")
+    try:
+        facts = json.loads(text)
+    except json.JSONDecodeError as exc:
+        print(f"[x] 事实文件不是合法 JSON：{exc}", file=sys.stderr)
+        return 2
+
+    if not isinstance(facts, dict):
+        print("[x] 事实文件的最外层必须是一个 JSON 对象（字段名 -> 取值）", file=sys.stderr)
+        return 2
 
     result = adjudicate(domain, facts)
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
@@ -144,6 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_utf8_console()
     args = build_parser().parse_args(argv)
     try:
         return int(args.func(args))
