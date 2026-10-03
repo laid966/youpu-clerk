@@ -1,11 +1,17 @@
-# rulecheck —— 最小依赖（M0 阶段）
-# 目的：能连模型、能读配置、能跑测试。业务依赖（Web 服务、表格导出）留到后续阶段再加。
+# rulecheck —— 直接依赖（版本为实际解析结果，2026-10 于 Python 3.14.4 / Windows 实测通过）
+#
+# 说明：这里只列"我们主动要求"的包。它们的间接依赖由 pip 自动解析；
+#       完整快照见 requirements.lock.txt（用于精确复现）。
 
-python-dotenv==1.2.2
-langchain-core==1.6.5
-langchain==1.4.3
-langgraph==1.2.12
-langchain-deepseek==1.1.1
+# ---- 模型接入 ----
+langchain==1.4.3                 # 组件库（零件）
+langchain-core==1.6.6            # 消息、工具、结构化输出的基础类型
+langchain-deepseek==1.1.1        # 模型接入
+langgraph==1.2.12                # 流程编排（主线）
 
-# 开发与测试
+# ---- 配置与数据 ----
+python-dotenv==1.2.2             # 读 .env
+PyYAML==6.0.3                    # 读 domain/ 下的规则文件（规则是数据，不是代码）
+
+# ---- 测试 ----
 pytest==9.1.1

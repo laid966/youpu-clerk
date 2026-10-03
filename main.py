@@ -24,6 +24,31 @@ import sys
 from dotenv import load_dotenv
 from langchain_deepseek import ChatDeepSeek
 
+
+def _ensure_utf8_console() -> None:
+    """让 Windows 控制台按 UTF-8 显示中文，避免出现乱码。
+
+    如果不做这一步，在某些终端里中文会变成"涓枃"这样的乱码，
+    对一个中文项目来说体验很差。失败也不影响功能，所以静默忽略异常。
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
+    except Exception:  # noqa: BLE001 — 仅仅是显示优化，失败无妨
+        pass
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
+
+
+_ensure_utf8_console()
+
 # 读取同目录下的 .env（该文件被 .gitignore 排除，永远不会提交）
 load_dotenv()
 
@@ -48,10 +73,27 @@ def main() -> int:
         print("    3) 重新运行这条命令")
         return 2
 
-    model = ChatDeepSeek(model=MODEL_NAME, temperature=0)
+    # temperature=0：冒烟也保持确定性，便于对比两次运行是否一致
+    # max_retries=1：失败不要重试太多次，冒烟脚本要快速给出结论
+    model = ChatDeepSeek(model=MODEL_NAME, temperature=0, max_retries=1, timeout=30)
 
     print(f"-> 正在调用模型 {MODEL_NAME} ...")
-    message = model.invoke(QUESTION)
+    try:
+        message = model.invoke(QUESTION)
+    except Exception as exc:  # noqa: BLE001 — 冒烟脚本的职责就是把故障翻译成人话
+        detail = str(exc)
+        lowered = detail.lower()
+        print("\n[x] 调用失败。常见原因对照：")
+        if "401" in detail or "invalid_api_key" in lowered or "authentication" in lowered:
+            print("    key 无效或未生效（HTTP 401）→ 检查 .env 里的 DEEPSEEK_API_KEY")
+        elif "402" in detail or "insufficient" in lowered or "balance" in lowered:
+            print("    余额不足（HTTP 402）→ 去模型厂商后台充值")
+        elif "timeout" in lowered or "connect" in lowered:
+            print("    网络问题 → 确认能否访问模型服务地址")
+        else:
+            print("    未归类的错误，原始信息见下方")
+        print(f"\n    原始错误：{type(exc).__name__}: {detail[:300]}")
+        return 4
 
     print("\n--- 模型回答 ---")
     print(message.content)
