@@ -1,0 +1,11 @@
+# rulecheck —— 最小依赖（M0 阶段）
+# 目的：能连模型、能读配置、能跑测试。业务依赖（Web 服务、表格导出）留到后续阶段再加。
+
+python-dotenv==1.2.2
+langchain-core==1.6.5
+langchain==1.4.3
+langgraph==1.2.12
+langchain-deepseek==1.1.1
+
+# 开发与测试
+pytest==9.1.1

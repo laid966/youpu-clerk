@@ -1,0 +1,35 @@
+# ---- 密钥与本地配置（绝不入库）----
+.env
+.env.local
+*.key
+
+# ---- 本地真实数据（只用于私下验证，绝不入库、绝不写进文档）----
+data/local/
+*.local.json
+*.local.csv
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ---- 运行产物 ----
+*.db
+*.sqlite
+*.sqlite3
+*.log
+eval/latest.json
+eval/report.gen.md
+exports/
+
+# ---- 编辑器与系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
