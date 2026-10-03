@@ -1,0 +1,68 @@
+# 医学分级示范域 · HGB（血红蛋白）
+#
+# ⚠️ 仅供演示，参考区间为公开通用成人区间；不做诊断、不给用药建议。
+# 本域是「性别阈值 + 单向偏低」的示范：血红蛋白偏低才有临床意义，
+# 因此规则全部是下界方向。
+
+domain: med-hgb
+version: 0.1.0
+note: 纯虚构演示规则，不构成任何业务依据。
+
+verdicts: [normal, mild, marked, critical]
+default_verdict: normal
+critical_verdicts: [critical]
+
+facts:
+  - name: sex
+    type: enum
+    values: [male, female]
+
+  - name: age
+    type: number
+    minimum: 0
+    maximum: 120
+    boundaries: [18, 65]
+
+  - name: hgb
+    type: number
+    unit: g/L
+    minimum: 0
+    maximum: 250
+    boundaries: [70, 100, 110, 115, 130]
+
+rules:
+  - id: HGB-CRITICAL-LOW
+    when: 'hgb < 70'
+    verdict: critical
+    cite: 通用成人参考区间 男性 130–175、女性 115–150 g/L；<70 g/L 属危急值区间，须尽快就医
+    priority: 40
+
+  - id: HGB-MARKED-LOW-MALE
+    when: 'sex == "male" and hgb < 110'
+    verdict: marked
+    cite: 男性参考区间下限 130 g/L；<110 g/L 属明显偏低
+    priority: 25
+
+  - id: HGB-MARKED-LOW-FEMALE
+    when: 'sex == "female" and hgb < 100'
+    verdict: marked
+    cite: 女性参考区间下限 115 g/L；<100 g/L 属明显偏低
+    priority: 25
+
+  - id: HGB-MILD-LOW-MALE
+    when: 'sex == "male" and hgb < 130'
+    verdict: mild
+    cite: 男性参考区间 130–175 g/L；低于下限建议复查并查找原因
+    priority: 20
+
+  - id: HGB-MILD-LOW-FEMALE
+    when: 'sex == "female" and hgb < 115'
+    verdict: mild
+    cite: 女性参考区间 115–150 g/L；低于下限建议复查并查找原因
+    priority: 20
+
+escalate:
+  - when: 'age < 18'
+    reason: 本版本仅覆盖成人参考区间，未成年人请咨询儿科医生
+  - when: 'age > 100'
+    reason: 高龄人群参考区间差异较大，建议由医生判读

@@ -1,0 +1,53 @@
+# 医学分级示范域 · AST（天门冬氨酸氨基转移酶）
+# ⚠️ 仅供演示，参考区间为公开通用成人区间；不做诊断、不给用药建议。
+
+domain: med-ast
+version: 0.1.0
+note: 纯虚构演示规则，不构成任何业务依据。
+
+verdicts: [normal, mild, marked, critical]
+default_verdict: normal
+critical_verdicts: [critical]
+
+facts:
+  - name: sex
+    type: enum
+    values: [male, female]
+
+  - name: age
+    type: number
+    minimum: 0
+    maximum: 120
+    boundaries: [18, 65]
+
+  - name: ast
+    type: number
+    unit: U/L
+    minimum: 0
+    maximum: 2000
+    boundaries: [35, 40, 100, 300]
+
+rules:
+  - id: AST-CRITICAL
+    when: 'ast > 300'
+    verdict: critical
+    cite: 通用成人参考区间 15–40 U/L；>300 U/L 属危急值区间，须尽快就医
+    priority: 30
+
+  - id: AST-MARKED
+    when: 'ast > 100'
+    verdict: marked
+    cite: 通用成人参考区间 15–40 U/L；超过 2 倍上限属明显升高
+    priority: 20
+
+  - id: AST-MILD
+    when: 'ast > 40'
+    verdict: mild
+    cite: 通用成人参考区间 15–40 U/L；轻度升高建议复查
+    priority: 10
+
+escalate:
+  - when: 'age < 18'
+    reason: 本版本仅覆盖成人参考区间，未成年人请咨询儿科医生
+  - when: 'age > 100'
+    reason: 高龄人群参考区间差异较大，建议由医生判读

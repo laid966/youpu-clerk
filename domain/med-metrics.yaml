@@ -1,0 +1,92 @@
+# 医学分级示范域 · 指标清单（元数据）
+#
+# 这不是判定域，只是指标元数据：中文名、单位、所属组合、参考区间、以及对应哪个判定域。
+# 文件名刻意不叫 domain.yaml，这样 `python -m engine check --all` 不会把它当成判定域扫到。
+#
+# 用途：① 判决流水线按它组装事实  ② 渲染"像真实报告"的文本  ③ 后续审计器核对参考区间
+#
+# ⚠️ 参考区间取自公开通用成人区间，仅供演示；不同实验室略有差异，以本院报告为准。
+# 本工具不提供诊断、治疗或用药建议。
+
+disclaimer: 参考区间为公开通用成人区间，仅供演示；以本院报告为准。本工具不提供诊断、治疗或用药建议。
+
+metrics:
+  - code: alt
+    name: 丙氨酸氨基转移酶
+    abbr: ALT
+    panel: 肝功能
+    unit: U/L
+    domain: domain/med-alt/domain.yaml
+    reference:
+      male: [9, 50]
+      female: [9, 50]
+
+  - code: ast
+    name: 天门冬氨酸氨基转移酶
+    abbr: AST
+    panel: 肝功能
+    unit: U/L
+    domain: domain/med-ast/domain.yaml
+    reference:
+      male: [15, 40]
+      female: [15, 40]
+
+  - code: ggt
+    name: γ-谷氨酰转移酶
+    abbr: GGT
+    panel: 肝功能
+    unit: U/L
+    domain: domain/med-ggt/domain.yaml
+    reference:
+      male: [10, 60]
+      female: [10, 60]
+
+  - code: crea
+    name: 肌酐
+    abbr: CREA
+    panel: 肾功能
+    unit: umol/L
+    domain: domain/med-crea/domain.yaml
+    reference:
+      male: [57, 97]
+      female: [41, 73]
+
+  - code: ua
+    name: 尿酸
+    abbr: UA
+    panel: 肾功能
+    unit: umol/L
+    domain: domain/med-ua/domain.yaml
+    reference:
+      male: [208, 428]
+      female: [155, 357]
+
+  - code: tc
+    name: 总胆固醇
+    abbr: TC
+    panel: 血脂
+    unit: mmol/L
+    domain: domain/med-tc/domain.yaml
+    reference:
+      male: [0, 5.2]
+      female: [0, 5.2]
+
+  - code: fpg
+    name: 空腹血糖
+    abbr: FPG
+    panel: 血糖
+    unit: mmol/L
+    domain: domain/med-fpg/domain.yaml
+    reference:
+      male: [3.9, 6.1]
+      female: [3.9, 6.1]
+
+  - code: hgb
+    name: 血红蛋白
+    abbr: HGB
+    panel: 血常规
+    unit: g/L
+    domain: domain/med-hgb/domain.yaml
+    reference:
+      male: [130, 175]
+      female: [115, 150]

@@ -25,7 +25,7 @@ from engine.sample_gen import DEFAULT_SEED, generate_cases, write_dataset
 from engine.selfcheck import DEFAULT_SAMPLES, run_selfcheck
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DOMAIN_GLOB = "domain/*/domain.yaml"
+DEFAULT_DOMAIN_GLOB = "domain/**/domain.yaml"
 
 
 def _read_json_text(source: str) -> str:

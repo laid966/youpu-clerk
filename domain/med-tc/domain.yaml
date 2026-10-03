@@ -1,0 +1,53 @@
+# 医学分级示范域 · TC（总胆固醇）
+# ⚠️ 仅供演示，参考区间为公开通用成人区间；不做诊断、不给用药建议。
+
+domain: med-tc
+version: 0.1.0
+note: 纯虚构演示规则，不构成任何业务依据。
+
+verdicts: [normal, mild, marked, critical]
+default_verdict: normal
+critical_verdicts: [critical]
+
+facts:
+  - name: sex
+    type: enum
+    values: [male, female]
+
+  - name: age
+    type: number
+    minimum: 0
+    maximum: 120
+    boundaries: [18, 65]
+
+  - name: tc
+    type: number
+    unit: mmol/L
+    minimum: 0
+    maximum: 30
+    boundaries: [5.2, 6.2, 10.0]
+
+rules:
+  - id: TC-CRITICAL
+    when: 'tc > 10.0'
+    verdict: critical
+    cite: 通用成人理想值 <5.2 mmol/L；>10.0 mmol/L 属危急值区间，须尽快就医
+    priority: 30
+
+  - id: TC-MARKED
+    when: 'tc > 6.2'
+    verdict: marked
+    cite: 通用成人理想值 <5.2 mmol/L；>6.2 mmol/L 属明显升高
+    priority: 20
+
+  - id: TC-MILD
+    when: 'tc > 5.2'
+    verdict: mild
+    cite: 通用成人理想值 <5.2 mmol/L；轻度升高建议复查并调整饮食
+    priority: 10
+
+escalate:
+  - when: 'age < 18'
+    reason: 本版本仅覆盖成人参考区间，未成年人请咨询儿科医生
+  - when: 'age > 100'
+    reason: 高龄人群参考区间差异较大，建议由医生判读

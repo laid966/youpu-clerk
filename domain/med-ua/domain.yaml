@@ -1,0 +1,59 @@
+# 医学分级示范域 · UA（尿酸）
+# ⚠️ 仅供演示，参考区间为公开通用成人区间；不做诊断、不给用药建议。
+
+domain: med-ua
+version: 0.1.0
+note: 纯虚构演示规则，不构成任何业务依据。
+
+verdicts: [normal, mild, marked, critical]
+default_verdict: normal
+critical_verdicts: [critical]
+
+facts:
+  - name: sex
+    type: enum
+    values: [male, female]
+
+  - name: age
+    type: number
+    minimum: 0
+    maximum: 120
+    boundaries: [18, 65]
+
+  - name: ua
+    type: number
+    unit: umol/L
+    minimum: 0
+    maximum: 2000
+    boundaries: [155, 208, 357, 428, 480, 540]
+
+rules:
+  - id: UA-MARKED-MALE
+    when: 'sex == "male" and ua > 540'
+    verdict: marked
+    cite: 男性参考区间 208–428 μmol/L；>540 μmol/L 属明显升高
+    priority: 25
+
+  - id: UA-MARKED-FEMALE
+    when: 'sex == "female" and ua > 480'
+    verdict: marked
+    cite: 女性参考区间 155–357 μmol/L；>480 μmol/L 属明显升高
+    priority: 25
+
+  - id: UA-MILD-MALE
+    when: 'sex == "male" and ua > 428'
+    verdict: mild
+    cite: 男性参考区间 208–428 μmol/L；轻度升高建议复查并注意饮食
+    priority: 20
+
+  - id: UA-MILD-FEMALE
+    when: 'sex == "female" and ua > 357'
+    verdict: mild
+    cite: 女性参考区间 155–357 μmol/L；轻度升高建议复查并注意饮食
+    priority: 20
+
+escalate:
+  - when: 'age < 18'
+    reason: 本版本仅覆盖成人参考区间，未成年人请咨询儿科医生
+  - when: 'age > 100'
+    reason: 高龄人群参考区间差异较大，建议由医生判读

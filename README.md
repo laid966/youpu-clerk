@@ -43,21 +43,25 @@
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
 | **M0** | 环境、仓库、冒烟脚本、文档骨架 | ✅ 已完成 |
-| **M1** | 判定引擎 + 规则自检 + 评测用例自动生成 | ✅ **已完成**（104 个测试） |
-| M2 | 最小 agent：大白话 → 结构化事实 → 调引擎 → 答复 | ⏳ 下一步 |
-| M3–M4 | 澄清与转人工流程、指标体系、基线对比、CI 门禁 | 计划中 |
-| M5–M7 | 界面、开源发布、副场景与求职材料 | 计划中 |
+| **M1** | 确定性引擎：受限表达式 + 域加载 + 判定 + 规则自检 + 用例生成 | ✅ 已完成 |
+| **M1.5** | 分级域能力：域自声明判定值 / 默认结论 / 危急结论必须人工 | ✅ 已完成 |
+| **A1** | 医学分级 8 个域 + 判决流水线 + 判决样本生成 | ✅ **已完成**（158 个测试） |
+| A2 | 缺陷注入器（8 类可注入缺陷） | ⏳ 下一步 |
+| A3–A4 | 确定性检查器 + RAG 知识库与引用核查 | 计划中 |
+| A5–A6 | LangGraph 审计 agent + 变异测试与变异得分 | 计划中 |
+| A7–A9 | 录制回放、界面、补丁闭环与开源发布 | 计划中 |
 
-**M1 已经能跑出真实数字**，例如：
+**已经能跑出的真实数字**：
 
-- 判定引擎对 13 条退改签规则算出的金额**全部由手算断言校验**（如 `15000 × 5% = 750.00`）
-- 规则自检在 3000 个样本上：覆盖率 99.6%，同优先级冲突 **0**，规则缺口 12 个（0.4%）
-- 一次生成 **1000 条**带标准答案的评测用例，固定 seed 可逐字节复现
+- 10 个判定域（8 个医学分级 + 2 个回归夹具）自检：**0 错误**，医学域覆盖率 **100%**
+- 判决样本生成 **档案配比精确命中计划值**：normal 50.0% / single_mild 20.0% / multi_mild 15.0% / marked 10.0% / critical 5.0%
+- 每个指标的金额/严重度判定**全部由手算断言校验**（如肌酐男性 130–175 与女性不同的阈值）
+- 一次生成 200 份判决样本，固定 seed **可逐字节复现**
 
 ## 快速开始
 
 ```bat
-:: 1) 准备密钥（只做一次）
+:: 1) 准备密钥（只做一次，A1 阶段还用不到）
 copy .env.example .env
 ::    然后用编辑器把你自己申请的 key 填进 DEEPSEEK_API_KEY=
 
@@ -67,17 +71,18 @@ copy .env.example .env
 :: 3) 跑全部测试（不需要 API key，不会花钱）
 .\.venv\Scripts\python.exe -m pytest -q
 
-:: 4) 规则自检：报告写到 reports/
-.\.venv\Scripts\python.exe -m engine check --all --samples 3000
+:: 4) 规则自检：10 个判定域，报告写到 reports/
+.\.venv\Scripts\python.exe -m engine check --all --samples 1000
 
-:: 5) 生成 1000 条带标准答案的评测用例
+:: 5) 生成判决样本（被审计对象），输出配比与严重度分布
+.\.venv\Scripts\python.exe -m audit synth --count 200
+
+:: 6) 生成带标准答案的评测用例（引擎层）
 .\.venv\Scripts\python.exe -m engine gen --all --count 1000
 
-:: 6) 对一组事实做单次判定
-echo {"order_amount": 15000, "cabin_class": "business", "fare_type": "standard", ^
-      "hours_before_departure": 100, "discount_rate": 0.4, "is_through_ticket": false, ^
-      "is_noshow": false, "used_segments": 0, "total_segments": 1} ^
- | .\.venv\Scripts\python.exe -m engine decide --domain domain/airline-fare-sample/domain.yaml
+:: 7) 单次判定：肌酐 110，男性 → 轻度；女性 → 明显升高
+echo {"sex": "female", "age": 40, "crea": 110} ^
+ | .\.venv\Scripts\python.exe -m engine decide --domain domain/med-crea/domain.yaml
 ```
 
 ## 目录

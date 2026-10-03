@@ -1,0 +1,68 @@
+# 医学分级示范域 · CREA（肌酐）
+#
+# ⚠️ 仅供演示，参考区间为公开通用成人区间；不做诊断、不给用药建议。
+# 本域是「阈值随性别变化」的示范：同一数值在男女身上结论不同，
+# 这正是审计器最该抓的那类缺陷（用错性别阈值）。
+
+domain: med-crea
+version: 0.1.0
+note: 纯虚构演示规则，不构成任何业务依据。
+
+verdicts: [normal, mild, marked, critical]
+default_verdict: normal
+critical_verdicts: [critical]
+
+facts:
+  - name: sex
+    type: enum
+    values: [male, female]
+
+  - name: age
+    type: number
+    minimum: 0
+    maximum: 120
+    boundaries: [18, 65]
+
+  - name: crea
+    type: number
+    unit: umol/L
+    minimum: 0
+    maximum: 2000
+    boundaries: [41, 57, 73, 97, 106, 133, 450]
+
+rules:
+  - id: CREA-CRITICAL
+    when: 'crea > 450'
+    verdict: critical
+    cite: 通用成人参考区间 男性 57–97、女性 41–73 μmol/L；>450 μmol/L 属危急值区间
+    priority: 40
+
+  - id: CREA-MARKED-MALE
+    when: 'sex == "male" and crea > 133'
+    verdict: marked
+    cite: 男性参考区间上限 97 μmol/L；超过 1.4 倍属明显升高
+    priority: 25
+
+  - id: CREA-MARKED-FEMALE
+    when: 'sex == "female" and crea > 106'
+    verdict: marked
+    cite: 女性参考区间上限 73 μmol/L；超过 1.4 倍属明显升高
+    priority: 25
+
+  - id: CREA-MILD-MALE
+    when: 'sex == "male" and crea > 97'
+    verdict: mild
+    cite: 男性参考区间 57–97 μmol/L；轻度升高建议复查并关注肾功能
+    priority: 20
+
+  - id: CREA-MILD-FEMALE
+    when: 'sex == "female" and crea > 73'
+    verdict: mild
+    cite: 女性参考区间 41–73 μmol/L；轻度升高建议复查并关注肾功能
+    priority: 20
+
+escalate:
+  - when: 'age < 18'
+    reason: 本版本仅覆盖成人参考区间，未成年人请咨询儿科医生
+  - when: 'age > 100'
+    reason: 高龄人群参考区间差异较大，建议由医生判读

@@ -11,12 +11,19 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-DOMAIN_FILES = sorted((ROOT / "domain").glob("*/domain.yaml"))
+DOMAIN_FILES = sorted((ROOT / "domain").glob("**/domain.yaml"))
+
+# 回归夹具：这两个域曾经是"门面场景"，现在退居为"换域即复用"的证明。
+REGRESSION_FIXTURES = {"airline-fare-sample", "university-credit-sample"}
 
 
-def test_two_sample_domains_exist():
-    """两个域是有意为之：主场景（有金额）+ 副场景（无金额、证明可迁移）。"""
-    assert len(DOMAIN_FILES) == 2, f"期望 2 个示例域，实际 {len(DOMAIN_FILES)} 个"
+def test_all_domains_are_discovered():
+    """至少要有：2 个回归夹具 + 8 个医学分级域。"""
+    names = {path.parent.name for path in DOMAIN_FILES}
+    assert REGRESSION_FIXTURES <= names, f"回归夹具缺失：{REGRESSION_FIXTURES - names}"
+    assert len(names - REGRESSION_FIXTURES) >= 8, (
+        f"医学分级域不足 8 个，实际 {sorted(names - REGRESSION_FIXTURES)}"
+    )
 
 
 @pytest.mark.parametrize("path", DOMAIN_FILES, ids=lambda p: p.parent.name)

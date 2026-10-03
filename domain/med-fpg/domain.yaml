@@ -1,0 +1,68 @@
+# 医学分级示范域 · FPG（空腹血糖）
+#
+# ⚠️ 仅供演示，参考区间为公开通用成人区间；不做诊断、不给用药建议。
+# 本域是「双向阈值」的示范：既有高于上限的规则，也有低于下限的规则，
+# 审计器必须两个方向都检查，漏掉任何一边都是缺陷。
+
+domain: med-fpg
+version: 0.1.0
+note: 纯虚构演示规则，不构成任何业务依据。
+
+verdicts: [normal, mild, marked, critical]
+default_verdict: normal
+critical_verdicts: [critical]
+
+facts:
+  - name: sex
+    type: enum
+    values: [male, female]
+
+  - name: age
+    type: number
+    minimum: 0
+    maximum: 120
+    boundaries: [18, 65]
+
+  - name: fpg
+    type: number
+    unit: mmol/L
+    minimum: 0
+    maximum: 40
+    boundaries: [2.8, 3.9, 6.1, 7.0, 13.9]
+
+rules:
+  - id: FPG-CRITICAL-HIGH
+    when: 'fpg > 13.9'
+    verdict: critical
+    cite: 通用成人参考区间 3.9–6.1 mmol/L；>13.9 mmol/L 属危急值区间，须尽快就医
+    priority: 40
+
+  - id: FPG-CRITICAL-LOW
+    when: 'fpg < 2.8'
+    verdict: critical
+    cite: 通用成人参考区间 3.9–6.1 mmol/L；<2.8 mmol/L 属低血糖危急值，须尽快就医
+    priority: 40
+
+  - id: FPG-MARKED-HIGH
+    when: 'fpg > 7.0'
+    verdict: marked
+    cite: 通用成人参考区间 3.9–6.1 mmol/L；>7.0 mmol/L 属明显升高
+    priority: 30
+
+  - id: FPG-MILD-HIGH
+    when: 'fpg > 6.1'
+    verdict: mild
+    cite: 通用成人参考区间 3.9–6.1 mmol/L；轻度升高建议复查空腹血糖与糖化血红蛋白
+    priority: 20
+
+  - id: FPG-MILD-LOW
+    when: 'fpg < 3.9'
+    verdict: mild
+    cite: 通用成人参考区间 3.9–6.1 mmol/L；偏低建议复查并注意进食规律
+    priority: 20
+
+escalate:
+  - when: 'age < 18'
+    reason: 本版本仅覆盖成人参考区间，未成年人请咨询儿科医生
+  - when: 'age > 100'
+    reason: 高龄人群参考区间差异较大，建议由医生判读

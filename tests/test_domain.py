@@ -15,7 +15,7 @@ import yaml
 from engine.domain import DomainError, load_domain
 
 ROOT = Path(__file__).resolve().parents[1]
-SAMPLE_DOMAINS = sorted((ROOT / "domain").glob("*/domain.yaml"))
+SAMPLE_DOMAINS = sorted((ROOT / "domain").glob("**/domain.yaml"))
 
 
 def _base_domain(**overrides):
