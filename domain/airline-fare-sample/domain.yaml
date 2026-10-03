@@ -1,0 +1,71 @@
+# 主场景：虚构的退改签费用与资格判定
+# ⚠️ 纯虚构演示规则，与任何真实航司、平台或运价规则无关，不构成任何业务依据。
+# 待办（你的作业）：扩充到 25–30 条，覆盖时间窗、折扣加成、联程折算、
+#                   婴儿/儿童票、代码共享、不可抗力、规则优先级冲突等。
+
+domain: airline-fare-sample
+version: 0.1.0
+note: 纯虚构，仅用于演示。
+
+facts:
+  - name: order_amount
+    type: number
+    unit: CNY
+  - name: cabin_class
+    type: enum
+    values: [economy, premium, business]
+  - name: hours_before_departure
+    type: number
+  - name: discount_rate          # 0.4 表示四折
+    type: number
+  - name: is_through_ticket
+    type: bool
+  - name: used_segments
+    type: number
+  - name: total_segments
+    type: number
+
+rules:
+  - id: R-001
+    when: 'hours_before_departure >= 168'
+    verdict: refundable
+    fee:
+      form: rate_of_amount
+      rate: 0.05
+    cite: '示例票规 第 3.1 条：起飞前 7 天（含）以上退票，收取票面 5%'
+    priority: 10
+
+  - id: R-002
+    when: 'hours_before_departure >= 48 and hours_before_departure < 168'
+    verdict: refundable
+    fee:
+      form: rate_of_amount
+      rate: 0.15
+    cite: '示例票规 第 3.2 条：起飞前 48 小时至 7 天退票，收取票面 15%'
+    priority: 10
+
+  - id: R-003
+    when: 'hours_before_departure < 48'
+    verdict: refundable
+    fee:
+      form: rate_of_amount
+      rate: 0.30
+    cite: '示例票规 第 3.3 条：起飞前 48 小时内退票，收取票面 30%'
+    priority: 10
+
+  - id: R-901
+    when: 'cabin_class == "economy" and discount_rate < 0.5'
+    verdict: needs_review
+    fee:
+      form: fixed
+      amount: 0
+    cite: '示例票规 第 4.7 条：低折扣票的费率加成规则表述不清，需人工确认'
+    priority: 20
+
+escalate:
+  - when: 'fee_amount > 5000'
+    reason: 金额超出自动处理阈值，需人工复核
+  - when: 'missing_any_fact == true'
+    reason: 关键信息缺失，不得猜测
+  - when: 'is_through_ticket == true and used_segments > 0'
+    reason: 联程票部分使用，折算规则需人工确认
