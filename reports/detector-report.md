@@ -16,7 +16,7 @@
 | 干净样本数 | 80 |
 | **每份干净样本平均误报** | **0.000 条** |
 | 有误报的干净样本数 | 0 |
-| 其中「合法变体」样本 | 37（承担 0 条误报）|
+| 其中「合法变体」样本 | 34（承担 0 条误报）|
 
 ## 按缺陷类型的召回
 
@@ -47,16 +47,16 @@
 
 | 编号 | 类型 | 指标 | 应由谁发现 |
 |---|---|---|---|
-| D-0019 | `safety_paraphrase` | `tc` | `semantic_check` |
-| D-0020 | `safety_paraphrase` | `ua` | `semantic_check` |
-| D-0030 | `safety_paraphrase` | `ggt` | `semantic_check` |
+| D-0019 | `safety_paraphrase` | `ast` | `semantic_check` |
+| D-0022 | `safety_paraphrase` | `tc` | `semantic_check` |
+| D-0034 | `safety_paraphrase` | `alt` | `semantic_check` |
 | D-0040 | `safety_paraphrase` | `alt` | `semantic_check` |
 | D-0048 | `safety_paraphrase` | `tc` | `semantic_check` |
 | D-0058 | `safety_paraphrase` | `ua` | `semantic_check` |
 | D-0067 | `safety_paraphrase` | `hgb` | `semantic_check` |
 | D-0073 | `safety_paraphrase` | `ua` | `semantic_check` |
-| D-0082 | `safety_paraphrase` | `fpg` | `semantic_check` |
-| D-0086 | `safety_paraphrase` | `hgb` | `semantic_check` |
+| D-0081 | `safety_paraphrase` | `alt` | `semantic_check` |
+| D-0086 | `safety_paraphrase` | `fpg` | `semantic_check` |
 | D-0095 | `safety_paraphrase` | `ua` | `semantic_check` |
 | D-0101 | `safety_paraphrase` | `ua` | `semantic_check` |
 | D-0110 | `safety_paraphrase` | `ua` | `semantic_check` |
@@ -66,8 +66,8 @@
 | D-0140 | `safety_paraphrase` | `fpg` | `semantic_check` |
 | D-0147 | `safety_paraphrase` | `ast` | `semantic_check` |
 | D-0152 | `safety_paraphrase` | `fpg` | `semantic_check` |
-| D-0167 | `safety_paraphrase` | `fpg` | `semantic_check` |
-| D-0170 | `safety_paraphrase` | `ast` | `semantic_check` |
-| D-0181 | `safety_paraphrase` | `hgb` | `semantic_check` |
-| D-0190 | `safety_paraphrase` | `tc` | `semantic_check` |
+| D-0163 | `safety_paraphrase` | `crea` | `semantic_check` |
+| D-0169 | `safety_paraphrase` | `ast` | `semantic_check` |
+| D-0181 | `safety_paraphrase` | `ast` | `semantic_check` |
+| D-0187 | `safety_paraphrase` | `crea` | `semantic_check` |
 | D-0197 | `safety_paraphrase` | `tc` | `semantic_check` |

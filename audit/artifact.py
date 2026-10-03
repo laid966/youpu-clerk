@@ -110,6 +110,20 @@ class ArtifactItem:
             "citations": list(self.citations),
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping) -> "ArtifactItem":
+        return cls(
+            code=str(payload["code"]),
+            name=str(payload["name"]),
+            value=float(payload["value"]),
+            unit=str(payload["unit"]),
+            reference_text=str(payload["reference_text"]),
+            severity=str(payload["severity"]),
+            explanation=str(payload["explanation"]),
+            advice=str(payload["advice"]),
+            citations=tuple(str(cite) for cite in payload.get("citations", ())),
+        )
+
 
 @dataclass(frozen=True)
 class Artifact:
@@ -141,6 +155,25 @@ class Artifact:
             "items": [entry.to_dict() for entry in self.items],
             "disclaimer": self.disclaimer,
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping) -> "Artifact":
+        """从字典还原。
+
+        为什么需要它：LangGraph 的状态要能被 checkpointer 序列化，
+        所以图里流转的是 dict 而不是 dataclass。这个方法是那道桥。
+        """
+        return cls(
+            report_id=str(payload["report_id"]),
+            age=int(payload["age"]),
+            sex=str(payload["sex"]),
+            abnormal_count=int(payload["abnormal_count"]),
+            worst_severity=str(payload["worst_severity"]),
+            urgent=bool(payload["urgent"]),
+            summary_text=str(payload["summary_text"]),
+            items=tuple(ArtifactItem.from_dict(item) for item in payload["items"]),
+            disclaimer=str(payload.get("disclaimer", DISCLAIMER)),
+        )
 
 
 def _explanation_for(metric: Metric, value: float, severity: str, sex: str) -> str:
