@@ -31,6 +31,7 @@ exports/
 # 入库只会带来巨大的无意义 diff。人读抽样（*.sample-*.md）与自检报告入库，作为证据。
 eval/dataset-*.jsonl
 eval/judged-reports.jsonl
+eval/injected-artifacts.jsonl
 
 # ---- 编辑器与系统 ----
 .vscode/

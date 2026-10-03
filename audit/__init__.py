@@ -16,6 +16,7 @@ from audit.pipeline import (
     Report,
     judge_metric,
     judge_report,
+    known_citations,
     load_metrics,
     severity_rank,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "Report",
     "judge_metric",
     "judge_report",
+    "known_citations",
     "load_metrics",
     "severity_rank",
 ]

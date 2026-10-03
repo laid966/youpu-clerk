@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import yaml
 
@@ -23,7 +23,9 @@ __all__ = [
     "JudgedReport",
     "Metric",
     "Report",
+    "judge_metric",
     "judge_report",
+    "known_citations",
     "load_metrics",
     "severity_rank",
 ]
@@ -202,3 +204,16 @@ def judge_metric(metric: Metric, sex: str, age: int, value: float) -> Mapping[st
     """
     report = Report(report_id="<probe>", age=age, sex=sex, values={metric.code: float(value)})
     return adjudicate(_domain_for(metric), report.facts_for(metric)).to_dict()
+
+
+def known_citations(metrics: Sequence[Metric]) -> frozenset[str]:
+    """全部「合法引用」的集合 = 各判定域里所有规则的 cite。
+
+    审计器用它做引用存在性检查：解读里出现的任何依据，都必须在这一集合里。
+    这是"引用编造"这类缺陷的判据，不需要模型参与。
+    """
+    cites: set[str] = set()
+    for metric in metrics:
+        for rule in _domain_for(metric).rules:
+            cites.add(rule.cite)
+    return frozenset(cites)

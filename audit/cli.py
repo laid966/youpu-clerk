@@ -14,6 +14,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from audit.inject import (
+    CLEAN_SHARE,
+    DEFECT_KINDS,
+    DEFECT_LABELS,
+    build_injected_dataset,
+    capability_report,
+)
+from audit.inject import write_dataset as write_injected_dataset
 from audit.pipeline import load_metrics, severity_rank
 from audit.synth import DEFAULT_SEED, generate_reports, write_dataset
 from engine.console import ensure_utf8_console
@@ -63,6 +71,52 @@ def cmd_synth(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_inject(args: argparse.Namespace) -> int:
+    metrics = load_metrics()
+    judged_cases = generate_reports(count=args.count, metrics=metrics, seed=args.seed)
+    cases = build_injected_dataset(judged_cases, metrics, seed=args.seed)
+
+    out = Path(args.out)
+    sample_out = Path(args.sample_out)
+    write_injected_dataset(cases, out, sample_out, sample_size=args.sample_size)
+
+    clean = sum(1 for case in cases if case.clean)
+    count_dist: Counter[int] = Counter(len(case.defects) for case in cases)
+    kinds: Counter[str] = Counter()
+    for case in cases:
+        for defect in case.defects:
+            kinds[defect.kind] += 1
+    total_defects = sum(kinds.values())
+
+    print(f"生成 {len(cases)} 份注入样本（seed={args.seed}，可逐字节复现）")
+    print(f"  数据集   -> {out}")
+    print(f"  人读抽样 -> {sample_out}")
+    print()
+    print(
+        f"干净样本：{clean} 份（{clean / max(len(cases), 1):.1%}，计划 {CLEAN_SHARE:.0%}）"
+        "  ← 误报率的分母"
+    )
+    print("每份缺陷条数分布：")
+    for n in sorted(count_dist):
+        print(f"  {n} 条：{count_dist[n]:>4} 份")
+    print()
+    print(f"共注入缺陷 {total_defects} 条  ← 召回率的分母")
+    ceiling = capability_report(judged_cases, metrics, seed=args.seed)
+    print("按类型（实际条数 / 可注入上限，括号内为可检测性契约）：")
+    detectors = {}
+    for case in cases:
+        for defect in case.defects:
+            detectors.setdefault(defect.kind, defect.expected_detector)
+    for kind in DEFECT_KINDS:
+        label = DEFECT_LABELS[kind]
+        detector = detectors.get(kind, "-")
+        print(
+            f"  {kind:<22} {kinds.get(kind, 0):>4} / {ceiling.get(kind, 0):<4} "
+            f"{label}（{detector}）"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m audit",
@@ -77,6 +131,20 @@ def build_parser() -> argparse.ArgumentParser:
     synth.add_argument("--sample-out", default=str(ROOT / "eval" / "judged-reports.sample.md"))
     synth.add_argument("--sample-size", type=int, default=3, help="人读抽样条数")
     synth.set_defaults(func=cmd_synth)
+
+    inject = subparsers.add_parser(
+        "inject", help="注入已知缺陷：产出被审计产物 + 标准答案"
+    )
+    inject.add_argument("--count", type=int, default=200, help="样本数量")
+    inject.add_argument("--seed", type=int, default=DEFAULT_SEED, help="随机种子")
+    inject.add_argument(
+        "--out", default=str(ROOT / "eval" / "injected-artifacts.jsonl")
+    )
+    inject.add_argument(
+        "--sample-out", default=str(ROOT / "eval" / "injected-artifacts.sample.md")
+    )
+    inject.add_argument("--sample-size", type=int, default=2, help="人读抽样条数")
+    inject.set_defaults(func=cmd_inject)
 
     return parser
 
