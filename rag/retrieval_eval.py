@@ -21,7 +21,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping, Sequence
 
 from rag.knowledge import KnowledgeBase
@@ -33,9 +35,15 @@ __all__ = [
     "RetrievalReport",
     "build_eval_set",
     "evaluate_retrieval",
+    "load_user_questions",
 ]
 
 DEFAULT_K_VALUES = (1, 3, 5)
+ROOT = Path(__file__).resolve().parents[1]
+QUESTIONS_FILE = ROOT / "eval" / "questions.jsonl"
+
+SOURCE_TEMPLATE = "template"
+SOURCE_USER = "user"
 
 
 @dataclass(frozen=True)
@@ -44,6 +52,7 @@ class RetrievalCase:
     query: str
     relevant: tuple[str, ...]
     note: str = ""
+    source: str = SOURCE_TEMPLATE
 
 
 @dataclass(frozen=True)
@@ -113,8 +122,80 @@ class RetrievalReport:
         return "\n".join(lines)
 
 
-def build_eval_set(knowledge: KnowledgeBase) -> tuple[RetrievalCase, ...]:
-    """生成评测集：每个指标 3 种问法 + 每个指南要点 1 种问法。"""
+def load_user_questions(
+    path: str | Path = QUESTIONS_FILE, knowledge: KnowledgeBase | None = None
+) -> tuple[RetrievalCase, ...]:
+    """读**真实问句**（`eval/questions.jsonl`）。
+
+    格式（每行一个 JSON）：
+        {"query": "转氨酶高是不是熬夜熬的", "metric": "alt", "note": "口语化"}
+        {"query": "尿酸高能不能吃海鲜", "guideline": "urate-diet"}
+
+    `metric` 与 `guideline` **必须写且只能写一个**——它就是标准答案。
+    这样你写问句时不需要知道内部 chunk id 长什么样，只写指标代码或指南 id 就行。
+
+    格式错了会直接报错（带上行号），不会静默跳过——
+    静默跳过会让你的评测集悄悄变少，而你毫无察觉。
+    """
+    path = Path(path)
+    if not path.is_file():
+        return ()
+    if knowledge is None:
+        from rag.knowledge import load_knowledge
+
+        knowledge = load_knowledge()
+
+    cases: list[RetrievalCase] = []
+    for line_no, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{path.name} 第 {line_no} 行不是合法 JSON：{exc}") from exc
+
+        query = str(payload.get("query", "")).strip()
+        if not query:
+            raise ValueError(f"{path.name} 第 {line_no} 行缺少 query")
+
+        metric = payload.get("metric")
+        guideline = payload.get("guideline")
+        if bool(metric) == bool(guideline):
+            raise ValueError(
+                f"{path.name} 第 {line_no} 行必须且只能给出 metric 或 guideline 之一"
+            )
+
+        if metric:
+            chunk_id = f"kb://metric/{metric}"
+        else:
+            chunk_id = f"kb://guideline/{guideline}"
+
+        if knowledge.by_id(chunk_id) is None:
+            raise ValueError(
+                f"{path.name} 第 {line_no} 行指向了不存在的知识条目：{chunk_id}"
+            )
+
+        cases.append(
+            RetrievalCase(
+                case_id=f"U-{len(cases) + 1:03d}",
+                query=query,
+                relevant=(chunk_id,),
+                note=str(payload.get("note", "")),
+                source=SOURCE_USER,
+            )
+        )
+    return tuple(cases)
+
+
+def build_eval_set(
+    knowledge: KnowledgeBase, user_questions_path: str | Path | None = QUESTIONS_FILE
+) -> tuple[RetrievalCase, ...]:
+    """模板集 + 真实问句集。
+
+    模板集保证基准稳定、每次都能跑；真实问句集才是真正说明问题的那个数字。
+    两者分开展示，不混在一起平均——否则真实问法的效果会被模板题稀释掉。
+    """
     metric_chunks = [chunk for chunk in knowledge.chunks if chunk.layer == "explanation"]
     guideline_chunks = [chunk for chunk in knowledge.chunks if chunk.layer == "guideline"]
 
@@ -138,6 +219,7 @@ def build_eval_set(knowledge: KnowledgeBase) -> tuple[RetrievalCase, ...]:
                     query=template,
                     relevant=(chunk.chunk_id,),
                     note=note,
+                    source=SOURCE_TEMPLATE,
                 )
             )
 
@@ -169,8 +251,12 @@ def build_eval_set(knowledge: KnowledgeBase) -> tuple[RetrievalCase, ...]:
                 query=query,
                 relevant=(chunk.chunk_id,) + extra_relevant,
                 note="指南要点类提问",
+                source=SOURCE_TEMPLATE,
             )
         )
+
+    if user_questions_path is not None:
+        cases.extend(load_user_questions(user_questions_path, knowledge))
 
     return tuple(cases)
 

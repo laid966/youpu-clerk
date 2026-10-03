@@ -55,6 +55,13 @@ DETECTORS: tuple[str, ...] = (
     "safety_terms",
 )
 
+# 第七个检查器：`semantic_check`（语义检查）。
+#
+# 它**故意不在这里**，因为它不是确定性的——要用模型，而且它的召回率取决于提示词写得好不好。
+# 它的评测在 `agent/eval_semantic.py`，单独一套指标。
+# 这样分层是有意为之：先量出确定性检查器的天花板，剩下的缺口才是语义检查要补的。
+SEMANTIC_DETECTOR = "semantic_check"
+
 # 检查器 -> 它负责的缺陷类型
 DETECTOR_TO_KINDS: Mapping[str, tuple[str, ...]] = {
     "oracle_differential": ("missed_critical", "downgraded", "wrong_sex_threshold"),
@@ -63,6 +70,7 @@ DETECTOR_TO_KINDS: Mapping[str, tuple[str, ...]] = {
     "citation_existence": ("fabricated_citation",),
     "advice_contract": ("internal_contradiction",),
     "safety_terms": ("safety_violation",),
+    SEMANTIC_DETECTOR: ("safety_paraphrase",),
 }
 
 

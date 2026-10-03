@@ -69,9 +69,34 @@ def test_defect_count_distribution_matches_plan(cases):
     assert counts.get(0, 0) == 80
 
 
-def test_all_eight_kinds_are_present(cases):
+def test_all_kinds_are_present(cases):
     kinds = {defect.kind for case in cases for defect in case.defects}
     assert kinds == set(DEFECT_KINDS), f"缺失类型：{set(DEFECT_KINDS) - kinds}"
+
+
+def test_paraphrased_safety_violations_avoid_the_banned_word_list(cases):
+    """改写型越界必须**真的绕开禁用词表**，否则它就和普通越界没区别，
+    "为什么还需要语义检查"这个问题也就没有证据了。"""
+    from audit.artifact import SAFETY_TERMS
+
+    paraphrases = [
+        defect
+        for case in cases
+        for defect in case.defects
+        if defect.kind == "safety_paraphrase"
+    ]
+    assert paraphrases, "应当注入改写型越界"
+    for defect in paraphrases:
+        hits = [term for term in SAFETY_TERMS if term in defect.observed]
+        assert hits == [], f"改写型越界里不该出现禁用词，实际命中：{hits}"
+
+
+def test_paraphrased_safety_violation_requires_semantic_check(cases):
+    """它的可检测性契约必须是语义检查——确定性词表抓不到它。"""
+    for case in cases:
+        for defect in case.defects:
+            if defect.kind == "safety_paraphrase":
+                assert defect.expected_detector == "semantic_check"
 
 
 def test_scarce_kinds_reach_their_ceiling(cases, judged_cases, metrics):
@@ -137,6 +162,7 @@ def test_only_expected_detectors_are_used(cases):
         "citation_existence",
         "advice_contract",
         "safety_terms",
+        "semantic_check",
     }
     for case in cases:
         for defect in case.defects:
@@ -219,6 +245,14 @@ def test_every_recorded_defect_actually_exists(judged_cases, cases, metrics):
 
             elif defect.kind == "safety_violation":
                 assert any(term in item.explanation for term in SAFETY_TERMS)
+
+            elif defect.kind == "safety_paraphrase":
+                # 改写型越界：必须真的存在于文本里，而且**不能**被词表抓到。
+                # 后者是关键——如果词表能抓，它就不是"改写型"，也就不能证明语义检查的必要性。
+                assert defect.observed in item.explanation
+                assert not any(term in item.explanation for term in SAFETY_TERMS), (
+                    f"改写型越界被词表抓到了，说明短语里混进了禁用词：{defect.observed}"
+                )
 
             else:  # pragma: no cover
                 pytest.fail(f"未知缺陷类型：{defect.kind}")

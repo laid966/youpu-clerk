@@ -1,0 +1,24 @@
+# 真实问句集 ★ 这是你的文件 ★
+#
+# 格式：每行一个 JSON。metric 与 guideline 必须且只能写一个 —— 它就是标准答案。
+#   {"query": "你的问法", "metric": "alt", "note": "可选说明"}
+#   {"query": "你的问法", "guideline": "urate-diet", "note": "可选说明"}
+#
+# 可用的 metric（8 个）：alt ast ggt crea ua tc fpg hgb
+# 可用的 guideline（7 个）：critical-value recheck fasting urate-diet lipid-lifestyle anemia disclaimer
+#
+# 为什么这件事必须你来做：
+#   系统里现有的 31 条问句是**模板生成的**（"ALT 偏高怎么办"这种），太干净。
+#   真实用户会说"转氨酶高是不是熬夜熬的""肌酐多少算高"——口语、省略、错别字、跨指标。
+#   真实问法上的 Recall@1 才是能写进简历的数字。
+#
+# 目标：100 条。先写 10 条也行，跑一次看分数，比空想有用。
+# 怎么跑：.\.venv\Scripts\python.exe -m rag eval
+#
+# 下面 5 条是示例，**请替换或保留随你**，但请把总数写上去。
+
+{"query": "转氨酶高是不是熬夜熬的", "metric": "alt", "note": "口语化，带因果猜测"}
+{"query": "肌酐多少算高", "metric": "crea", "note": "阈值类提问，不给数值"}
+{"query": "尿酸高能不能吃海鲜", "guideline": "urate-diet", "note": "跨指标，实际问的是饮食"}
+{"query": "抽血前能喝水吗", "guideline": "fasting", "note": "生活细节"}
+{"query": "总胆固醇高要吃药吗", "guideline": "lipid-lifestyle", "note": "涉及用药边界，答案应指向医生评估"}

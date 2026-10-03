@@ -19,7 +19,11 @@ from rag.knowledge import (
     RETRIEVABLE_LAYERS,
     load_knowledge,
 )
-from rag.retrieval_eval import build_eval_set, evaluate_retrieval
+from rag.retrieval_eval import (
+    build_eval_set,
+    evaluate_retrieval,
+    load_user_questions,
+)
 from rag.retriever import build_retriever
 from rag.tokenize import tokenize
 
@@ -37,8 +41,14 @@ def retriever(knowledge):
 
 
 @pytest.fixture(scope="module")
-def report(retriever, knowledge):
-    return evaluate_retrieval(retriever, build_eval_set(knowledge), k_values=(1, 3, 5))
+def template_report(retriever, knowledge):
+    """只评**模板集**。它是稳定的回归守卫。
+
+    真实问句集不能当回归守卫——它会随着作者往里加问句而变化，
+    拿它做门槛会让"加了一条难题"看起来像"系统退化了"。
+    """
+    cases = tuple(c for c in build_eval_set(knowledge) if c.source == "template")
+    return evaluate_retrieval(retriever, cases, k_values=(1, 3, 5))
 
 
 # --------------------------------------------------------------------------- #
@@ -165,24 +175,59 @@ def test_layer_filter_works(retriever):
 
 def test_retrieval_eval_set_is_complete(knowledge):
     cases = build_eval_set(knowledge)
-    assert len(cases) == 31, "8 指标 × 3 问法 + 7 指南 = 31"
+    template = [c for c in cases if c.source == "template"]
+    user = [c for c in cases if c.source == "user"]
+
+    assert len(template) == 31, "8 指标 × 3 问法 + 7 指南 = 31"
+    assert len(user) >= 5, "真实问句集至少要有起步的几条"
+
     for case in cases:
         assert case.relevant, f"{case.case_id} 没有标准答案"
         for chunk_id in case.relevant:
             assert knowledge.by_id(chunk_id) is not None, f"{case.case_id} 指向了不存在的 chunk"
 
 
-def test_baseline_does_not_regress(report):
-    """回归守卫：A4 的基线成绩不许退化。
+def test_user_questions_are_loaded_and_typed(knowledge):
+    cases = load_user_questions(knowledge=knowledge)
+    assert cases
+    for case in cases:
+        assert case.source == "user"
+        assert case.case_id.startswith("U-")
+        assert case.relevant[0].startswith("kb://")
 
-    ⚠️ 这只防退化，不证明质量。这些问句是模板生成的、标准答案大多只有一条，
-    真实用户的问法会更模糊。真实问句集是分工里"人的部分"。
+
+def test_user_question_format_errors_are_loud(tmp_path, knowledge):
+    """格式错必须报错并带行号——静默跳过会让评测集悄悄变少，而你毫无察觉。"""
+    bad_path = tmp_path / "questions.jsonl"
+
+    bad_path.write_text('{"query": "没有标准答案"}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="metric 或 guideline"):
+        load_user_questions(bad_path, knowledge)
+
+    bad_path.write_text('{"query": "两个都给", "metric": "alt", "guideline": "recheck"}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="只能给出"):
+        load_user_questions(bad_path, knowledge)
+
+    bad_path.write_text('{"query": "指标写错", "metric": "nope"}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="不存在的知识条目"):
+        load_user_questions(bad_path, knowledge)
+
+    bad_path.write_text('{"query": "不是 JSON"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="第 1 行"):
+        load_user_questions(bad_path, knowledge)
+
+
+def test_baseline_does_not_regress(template_report):
+    """回归守卫：模板集的成绩不许退化。
+
+    ⚠️ 这只防退化，不证明质量。真实问法上的分数见 `python -m rag eval`
+    与 `reports/retrieval-report.md` 的第二部分。
     """
-    assert report.cases == 31
-    assert report.recall_at(3) == 1.0, f"Recall@3 退化到 {report.recall_at(3):.1%}"
-    assert report.recall_at(1) >= 0.90, f"Recall@1 退化到 {report.recall_at(1):.1%}"
-    assert report.mrr >= 0.95, f"MRR 退化到 {report.mrr:.3f}"
-    assert report.misses == (), f"有 {len(report.misses)} 条没进前 5"
+    assert template_report.cases == 31
+    assert template_report.recall_at(3) == 1.0, f"Recall@3 退化到 {template_report.recall_at(3):.1%}"
+    assert template_report.recall_at(1) >= 0.90, f"Recall@1 退化到 {template_report.recall_at(1):.1%}"
+    assert template_report.mrr >= 0.95, f"MRR 退化到 {template_report.mrr:.3f}"
+    assert template_report.misses == (), f"有 {len(template_report.misses)} 条没进前 5"
 
 
 def test_evaluation_is_deterministic(retriever, knowledge):
