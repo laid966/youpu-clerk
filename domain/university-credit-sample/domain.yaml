@@ -1,26 +1,48 @@
 # 副场景：虚构的学分与毕业资格审核
 # ⚠️ 纯虚构演示规则，数字与任何真实培养方案不同，不构成任何业务依据。
+#
 # 用途：证明"换一份配置就换一个行业"，引擎一行不用改。
-# 待办（你的作业）：补充课程/班级数据文件，以及"时间表未公布"的处理规则。
+# 注意：这个域完全没有金额，所以规则的 fee 字段一律省略——引擎允许没有费用。
+#
+# 待办（你的作业）：补一份虚构的课程/班级数据文件，以及"部分课程时间表未公布"的处理规则。
 
 domain: university-credit-sample
-version: 0.1.0
+version: 0.2.0
 note: 纯虚构，仅用于演示。
 
 facts:
   - name: total_credits
     type: number
+    minimum: 0
+    maximum: 80
+    boundaries: [48, 54, 60, 66, 72]
+
   - name: core_credits
     type: number
+    minimum: 0
+    maximum: 60
+    boundaries: [24, 30, 36, 42]
+
   - name: capstone_credits
     type: number
+    minimum: 0
+    maximum: 18
+    boundaries: [0, 6, 12, 18]
+
   - name: workshop_count
     type: number
+    integer: true
+    minimum: 0
+    maximum: 3
+    boundaries: [0, 1, 2, 3]
+
   - name: campus
     type: enum
     values: [main, branch]
+
   - name: has_timetable_conflict
     type: bool
+
   - name: has_unpublished_schedule
     type: bool
 
@@ -28,34 +50,42 @@ rules:
   - id: U-001
     when: 'total_credits >= 60 and core_credits >= 36 and capstone_credits >= 12 and workshop_count >= 2 and campus == "main" and has_timetable_conflict == false'
     verdict: eligible
-    fee:
-      form: fixed
-      amount: 0
-    cite: '示例培养方案 第 2 节：毕业资格条件'
+    cite: '示例培养方案 第 2 节：毕业资格全部条件同时满足'
     priority: 10
 
   - id: U-002
     when: 'total_credits < 60'
     verdict: not_eligible
-    fee:
-      form: fixed
-      amount: 0
     cite: '示例培养方案 第 2.1 条：总学分不足 60'
     priority: 20
 
   - id: U-003
     when: 'core_credits < 36'
     verdict: not_eligible
-    fee:
-      form: fixed
-      amount: 0
     cite: '示例培养方案 第 2.2 条：核心课学分不足 36'
     priority: 20
 
+  - id: U-004
+    when: 'capstone_credits < 12'
+    verdict: not_eligible
+    cite: '示例培养方案 第 2.3 条：毕业设计学分不足 12'
+    priority: 20
+
+  - id: U-005
+    when: 'workshop_count < 2'
+    verdict: not_eligible
+    cite: '示例培养方案 第 2.4 条：必修工作坊不足 2 门'
+    priority: 20
+
+  - id: U-006
+    when: 'has_timetable_conflict == true'
+    verdict: not_eligible
+    cite: '示例培养方案 第 3.1 条：存在课程时间冲突，培养计划不可执行'
+    priority: 20
+
+# 同样不写 `missing_any_fact`：缺事实时转人工是引擎的内置不变量，不由配置声明。
 escalate:
   - when: 'campus == "branch"'
     reason: 异地校区能否计入尚不明确，需人工确认
   - when: 'has_unpublished_schedule == true'
-    reason: 部分课程时间表未公布，结论需标注"待复核"
-  - when: 'missing_any_fact == true'
-    reason: 关键信息缺失，不得猜测
+    reason: 部分课程时间表尚未公布，结论需标注"待复核"

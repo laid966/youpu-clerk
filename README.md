@@ -35,8 +35,19 @@
 
 ## 当前状态
 
-**M0（地基）**：环境、仓库、冒烟脚本、文档骨架、判定域格式。
-判定引擎、评测集、界面**尚未实现**。
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| **M0** | 环境、仓库、冒烟脚本、文档骨架 | ✅ 已完成 |
+| **M1** | 判定引擎 + 规则自检 + 评测用例自动生成 | ✅ **已完成**（104 个测试） |
+| M2 | 最小 agent：大白话 → 结构化事实 → 调引擎 → 答复 | ⏳ 下一步 |
+| M3–M4 | 澄清与转人工流程、指标体系、基线对比、CI 门禁 | 计划中 |
+| M5–M7 | 界面、开源发布、副场景与求职材料 | 计划中 |
+
+**M1 已经能跑出真实数字**，例如：
+
+- 判定引擎对 13 条退改签规则算出的金额**全部由手算断言校验**（如 `15000 × 5% = 750.00`）
+- 规则自检在 3000 个样本上：覆盖率 99.6%，同优先级冲突 **0**，规则缺口 12 个（0.4%）
+- 一次生成 **1000 条**带标准答案的评测用例，固定 seed 可逐字节复现
 
 ## 快速开始
 
@@ -48,19 +59,32 @@ copy .env.example .env
 :: 2) 跑冒烟，确认环境通了
 .\.venv\Scripts\python.exe main.py
 
-:: 3) 跑测试
-.\.venv\Scripts\python.exe -m pytest
+:: 3) 跑全部测试（不需要 API key，不会花钱）
+.\.venv\Scripts\python.exe -m pytest -q
+
+:: 4) 规则自检：报告写到 reports/
+.\.venv\Scripts\python.exe -m engine check --all --samples 3000
+
+:: 5) 生成 1000 条带标准答案的评测用例
+.\.venv\Scripts\python.exe -m engine gen --all --count 1000
+
+:: 6) 对一组事实做单次判定
+echo {"order_amount": 15000, "cabin_class": "business", "fare_type": "standard", ^
+      "hours_before_departure": 100, "discount_rate": 0.4, "is_through_ticket": false, ^
+      "is_noshow": false, "used_segments": 0, "total_segments": 1} ^
+ | .\.venv\Scripts\python.exe -m engine decide --domain domain/airline-fare-sample/domain.yaml
 ```
 
 ## 目录
 
 | 路径 | 内容 |
 |---|---|
-| `engine/` | 纯程序层：规则、判定、校验、不确定性、评测集生成（**不含模型**） |
-| `agent/` | 模型相关层：流程编排、提示词、越界拦截 |
+| `engine/` | 纯程序层：受限表达式、域加载、判定、规则自检、评测用例生成（**不含模型**） |
+| `agent/` | 模型相关层：流程编排、提示词、越界拦截（M2 起） |
 | `tools/` | 给模型用的"按钮"（含参数校验与报错规范） |
 | `domain/` | 判定域配置：**规则是数据，不是代码**，换文件即换行业 |
-| `eval/` | 评测集与跑分脚本 |
+| `eval/` | 评测用例生成与人读抽样；**两层验证的方法论见 `eval/README.md`** |
+| `reports/` | 规则自检报告（自动生成，入库作为证据） |
 | `docs/` | 产品需求、指标定义、失败模式、能力地图 |
 | `learn/` | 12 个小脚本，一个一个教概念 |
 

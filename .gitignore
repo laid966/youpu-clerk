@@ -27,6 +27,10 @@ eval/latest.json
 eval/report.gen.md
 exports/
 
+# 自动生成的评测数据集不入库：固定 seed + 一条命令即可逐字节复现，
+# 入库只会带来巨大的无意义 diff。人读抽样（*.sample-*.md）与自检报告入库，作为证据。
+eval/dataset-*.jsonl
+
 # ---- 编辑器与系统 ----
 .vscode/
 .idea/

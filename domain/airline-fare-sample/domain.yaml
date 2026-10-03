@@ -1,31 +1,67 @@
 # 主场景：虚构的退改签费用与资格判定
 # ⚠️ 纯虚构演示规则，与任何真实航司、平台或运价规则无关，不构成任何业务依据。
-# 待办（你的作业）：扩充到 25–30 条，覆盖时间窗、折扣加成、联程折算、
-#                   婴儿/儿童票、代码共享、不可抗力、规则优先级冲突等。
+#
+# 版本 0.2：
+#   - 数值字段补上 minimum / maximum / boundaries，评测集生成器靠它们造边界用例
+#   - 规则扩充到 13 条，形成"通用档位 + 舱位覆盖 + 票价类型覆盖"的优先级结构
+#
+# 待办（你的作业）：扩充到 25–30 条，补上婴儿/儿童票、代码共享、不可抗力、
+#                   改签（而不只是退票），以及故意制造一组同优先级冲突来观察自检怎么报错。
 
 domain: airline-fare-sample
-version: 0.1.0
+version: 0.2.0
 note: 纯虚构，仅用于演示。
 
 facts:
   - name: order_amount
     type: number
     unit: CNY
+    minimum: 200
+    maximum: 50000
+    boundaries: [200, 1000, 5000, 20000, 50000]
+
   - name: cabin_class
     type: enum
     values: [economy, premium, business]
+
+  - name: fare_type
+    type: enum
+    values: [standard, promotional, group]
+
   - name: hours_before_departure
     type: number
-  - name: discount_rate          # 0.4 表示四折
+    minimum: 1
+    maximum: 2160
+    boundaries: [1, 4, 24, 48, 168, 336, 720]
+
+  - name: discount_rate
     type: number
+    minimum: 0.1
+    maximum: 1.0
+    boundaries: [0.1, 0.3, 0.5, 0.75, 1.0]
+
   - name: is_through_ticket
     type: bool
+
+  - name: is_noshow
+    type: bool
+
   - name: used_segments
     type: number
+    integer: true
+    minimum: 0
+    maximum: 4
+    boundaries: [0, 1, 2, 4]
+
   - name: total_segments
     type: number
+    integer: true
+    minimum: 1
+    maximum: 4
+    boundaries: [1, 2, 3, 4]
 
 rules:
+  # ---- 第一层：按时间窗的通用费率（优先级 10）----
   - id: R-001
     when: 'hours_before_departure >= 168'
     verdict: refundable
@@ -45,27 +81,117 @@ rules:
     priority: 10
 
   - id: R-003
-    when: 'hours_before_departure < 48'
+    when: 'hours_before_departure >= 24 and hours_before_departure < 48'
     verdict: refundable
     fee:
       form: rate_of_amount
       rate: 0.30
-    cite: '示例票规 第 3.3 条：起飞前 48 小时内退票，收取票面 30%'
+    cite: '示例票规 第 3.3 条：起飞前 24 至 48 小时退票，收取票面 30%'
     priority: 10
 
-  - id: R-901
-    when: 'cabin_class == "economy" and discount_rate < 0.5'
+  - id: R-004
+    when: 'hours_before_departure < 24'
+    verdict: refundable
+    fee:
+      form: rate_of_amount
+      rate: 0.50
+    cite: '示例票规 第 3.4 条：起飞前 24 小时内退票，收取票面 50%'
+    priority: 10
+
+  # ---- 第二层：更宽松的特殊档位（优先级 12、18）----
+  - id: R-011
+    when: 'hours_before_departure >= 336'
+    verdict: refundable
+    fee:
+      form: rate_of_amount
+      rate: 0.02
+    cite: '示例票规 第 3.5 条：起飞前 14 天以上退票，收取票面 2%'
+    priority: 12
+
+  - id: R-014
+    when: 'fare_type == "standard" and discount_rate >= 0.75 and hours_before_departure >= 168'
+    verdict: refundable
+    fee:
+      form: rate_of_amount
+      rate: 0.03
+    cite: '示例票规 第 3.6 条：全价（75 折以上）标准票提前 7 天以上退票，收取票面 3%'
+    priority: 18
+
+  # ---- 第三层：舱位覆盖（优先级 15）----
+  - id: R-006
+    when: 'cabin_class == "business" and hours_before_departure >= 24'
+    verdict: refundable
+    fee:
+      form: rate_of_amount
+      rate: 0.05
+    cite: '示例票规 第 5.1 条：公务舱起飞前 24 小时以上退票，一律收取票面 5%'
+    priority: 15
+
+  - id: R-007
+    when: 'cabin_class == "premium" and hours_before_departure >= 48'
+    verdict: refundable
+    fee:
+      form: rate_of_amount
+      rate: 0.10
+    cite: '示例票规 第 5.2 条：超级经济舱起飞前 48 小时以上退票，收取票面 10%'
+    priority: 15
+
+  - id: R-013
+    when: 'cabin_class == "business" and hours_before_departure < 24'
+    verdict: refundable
+    fee:
+      form: rate_of_amount
+      rate: 0.50
+    cite: '示例票规 第 5.3 条：公务舱起飞前 24 小时内退票，收取票面 50%'
+    priority: 15
+
+  # ---- 第四层：需要人工判断（优先级 20、25）----
+  - id: R-012
+    when: 'fare_type == "standard" and discount_rate < 0.3'
     verdict: needs_review
     fee:
       form: fixed
       amount: 0
-    cite: '示例票规 第 4.7 条：低折扣票的费率加成规则表述不清，需人工确认'
+    cite: '示例票规 第 4.7 条：低于 3 折的标准票，费率加成规则表述不清，需人工确认'
     priority: 20
 
+  - id: R-009
+    when: 'fare_type == "group"'
+    verdict: needs_review
+    fee:
+      form: fixed
+      amount: 0
+    cite: '示例票规 第 6.2 条：团队票退票须由团体负责人统一办理，须人工处理'
+    priority: 25
+
+  # ---- 第五层：不可退（优先级 25、30）----
+  - id: R-008
+    when: 'fare_type == "promotional"'
+    verdict: not_refundable
+    fee:
+      form: rate_of_amount
+      rate: 1.0
+    cite: '示例票规 第 4.1 条：促销票一经出票不可退，退票手续费为票面全额'
+    priority: 25
+
+  - id: R-005
+    when: 'is_noshow == true'
+    verdict: not_refundable
+    fee:
+      form: rate_of_amount
+      rate: 1.0
+    cite: '示例票规 第 4.3 条：误机（No-show）后申请退票，手续费为票面全额'
+    priority: 30
+
+# 转人工条件：命中任何一条，最终答复一律变成"需要人工复核"，模型不得自行决定。
+#
+# 注意：这里**故意不写** `missing_any_fact == true` 这一条。
+# "关键事实缺失时必须转人工"是引擎的内置不变量，不需要、也不应该由规则作者声明——
+# 一旦允许它写在配置里，就等于允许有人把它删掉。
 escalate:
   - when: 'fee_amount > 5000'
-    reason: 金额超出自动处理阈值，需人工复核
-  - when: 'missing_any_fact == true'
-    reason: 关键信息缺失，不得猜测
+    reason: 退票手续费超出自动处理阈值（5000 元），需人工复核
   - when: 'is_through_ticket == true and used_segments > 0'
-    reason: 联程票部分使用，折算规则需人工确认
+    reason: 联程票已使用部分航段，折算规则需人工确认
+  - when: 'used_segments > total_segments'
+    reason: 已使用航段数大于总航段数，数据自相矛盾，需人工核查
