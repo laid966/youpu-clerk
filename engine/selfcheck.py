@@ -38,6 +38,7 @@ class SelfCheckReport:
     warnings: tuple[str, ...] = ()
     conflicts: tuple[str, ...] = ()
     uncovered: int = 0
+    default_hits: int = 0
     coverage_rate: float = 0.0
     matched_counts: Mapping[str, int] = field(default_factory=dict)
     win_counts: Mapping[str, int] = field(default_factory=dict)
@@ -61,6 +62,12 @@ class SelfCheckReport:
         lines.append(f"- 结论：{'✅ 未发现错误级问题' if self.ok else '❌ 发现错误级问题'}")
         lines.append(f"- 规则覆盖：**{self.coverage_rate:.1%}**（{self.samples - self.uncovered} / {self.samples} 个样本至少命中一条规则）")
         lines.append("")
+        if self.default_hits:
+            lines.append(
+                f"- 默认结论命中：**{self.default_hits}** 次"
+                "（该域声明了 `default_verdict`，没有规则命中即取默认结论，不计为规则缺口）"
+            )
+            lines.append("")
 
         lines.append("> 说明：本自检是**反例搜索**，不是逻辑证明。")
         lines.append(f"> 措辞严格为「在 {self.samples} 个样本中未发现」，不代表数学上不存在。")
@@ -136,6 +143,7 @@ def run_selfcheck(
 
     conflicts: list[str] = []
     uncovered = 0
+    default_hits = 0
     gap_examples: list[Mapping[str, Any]] = []
     seen_conflict_keys: set[str] = set()
 
@@ -155,9 +163,14 @@ def run_selfcheck(
             escalate_counts[reason] += 1
 
         if not result.matched_rules:
-            uncovered += 1
-            if len(gap_examples) < 3:
-                gap_examples.append(dict(facts))
+            if domain.default_verdict is not None:
+                # 域声明了默认结论：没有规则命中就是这个结论（例如"全部指标正常"），
+                # 这不是缺口，反而是最理想的情况，所以不计入 uncovered、也不报警告。
+                default_hits += 1
+            else:
+                uncovered += 1
+                if len(gap_examples) < 3:
+                    gap_examples.append(dict(facts))
             continue
 
         # 同优先级冲突：只看真正"并列第一"的两条
@@ -213,6 +226,7 @@ def run_selfcheck(
         warnings=tuple(warnings),
         conflicts=tuple(conflicts),
         uncovered=uncovered,
+        default_hits=default_hits,
         coverage_rate=(checked - uncovered) / checked if checked else 0.0,
         matched_counts=dict(matched_counts),
         win_counts=dict(win_counts),

@@ -52,6 +52,7 @@ class Judgement:
     matched_rules: tuple[MatchedRule, ...]
     citations: tuple[str, ...]
     escalated: bool
+    requires_human_review: bool
     escalate_reasons: tuple[str, ...]
     missing_facts: tuple[str, ...]
     out_of_range_facts: tuple[str, ...]
@@ -77,6 +78,7 @@ class Judgement:
             ],
             "citations": list(self.citations),
             "escalated": self.escalated,
+            "requires_human_review": self.requires_human_review,
             "escalate_reasons": list(self.escalate_reasons),
             "missing_facts": list(self.missing_facts),
             "out_of_range_facts": list(self.out_of_range_facts),
@@ -139,10 +141,18 @@ def adjudicate(domain: Domain, facts: Mapping[str, Any]) -> Judgement:
             fee_amount = winner.fee_amount
             winning_rule_id = winner.id
     else:
-        computed_verdict = None
-        fee_amount = None
-        winning_rule_id = None
-        reasons.append("没有任何规则覆盖该情形（规则缺口），不得编造结论")
+        if domain.default_verdict is not None:
+            # 域声明了"默认结论"：没有规则命中就是这个结论。
+            # 例如医学分级域里"所有指标都在参考区间内"是最理想的情况，
+            # 而不是规则集有缺口。这个含义由域声明，引擎不替它猜。
+            computed_verdict = domain.default_verdict
+            fee_amount = None
+            winning_rule_id = None
+        else:
+            computed_verdict = None
+            fee_amount = None
+            winning_rule_id = None
+            reasons.append("没有任何规则覆盖该情形（规则缺口），不得编造结论")
 
     # 转人工条件的求值上下文：事实 + 引擎提供的两个字段
     escalate_context: dict[str, Any] = {
@@ -169,6 +179,15 @@ def adjudicate(domain: Domain, facts: Mapping[str, Any]) -> Judgement:
     else:
         final_verdict = computed_verdict
 
+    # "必须有人接住"这件事由域声明，引擎来保证。
+    # 注意：即使被 escalate 覆盖成 needs_review，只要规则本来给出的是危急结论，
+    # 也一样要进人工队列——不能因为另一个原因转了人工，就把危急这个事实漏掉。
+    requires_human_review = bool(
+        escalated
+        or final_verdict in domain.critical_verdicts
+        or computed_verdict in domain.critical_verdicts
+    )
+
     return Judgement(
         domain=domain.name,
         final_verdict=final_verdict,
@@ -178,6 +197,7 @@ def adjudicate(domain: Domain, facts: Mapping[str, Any]) -> Judgement:
         matched_rules=tuple(matched),
         citations=tuple(dict.fromkeys(item.cite for item in matched)),
         escalated=escalated,
+        requires_human_review=requires_human_review,
         escalate_reasons=tuple(dict.fromkeys(reasons)),
         missing_facts=tuple(notes_missing),
         out_of_range_facts=tuple(out_of_range),

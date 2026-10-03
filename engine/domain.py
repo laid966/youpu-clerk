@@ -34,7 +34,10 @@ __all__ = [
 ENGINE_PROVIDED_NAMES = frozenset({"missing_any_fact", "fee_amount"})
 
 _ALLOWED_FACT_TYPES = frozenset({"number", "enum", "bool"})
-_ALLOWED_VERDICTS = frozenset(
+# 引擎自带的一组判定值，只作为**默认值**。
+# 判定值是"域的语言"：费用域说 refundable，医学域说 critical。
+# 所以域可以自己声明 `verdicts`，引擎不该替它规定词汇表。
+_DEFAULT_VERDICTS = frozenset(
     {
         "refundable",
         "not_refundable",
@@ -108,6 +111,24 @@ class Domain:
     rules: tuple[Rule, ...]
     escalations: tuple[Escalation, ...]
     source: Path
+    verdicts: frozenset[str] = _DEFAULT_VERDICTS
+    """本域允许出现的判定值。域可以自己声明，否则用引擎默认的一组。"""
+
+    default_verdict: str | None = None
+    """**没有规则命中时的结论**。这是域相关的语义：
+
+    - 费用域：没有规则命中说明规则集有缺口 → 保持为 None，引擎会转人工、明说"规则缺口"
+    - 医学分级域：没有规则命中恰恰是**最理想的情况**（所有指标都正常）→ 声明为 "normal"
+
+    引擎不替域猜这个含义，必须由域显式声明。
+    """
+
+    critical_verdicts: frozenset[str] = frozenset()
+    """必须有人接住的结论（例如医学域的 critical）。
+
+    与 missing_any_fact 一样，这是**引擎的内置不变量**而不是可配置的策略：
+    声明在这里的结论，一定会在结果里被标成 requires_human_review。
+    """
 
     @property
     def fact_names(self) -> frozenset[str]:
@@ -148,11 +169,14 @@ def _build_domain(raw: Mapping[str, Any], source: Path) -> Domain:
         if key not in raw:
             raise DomainError(f"{where} 缺少顶层字段：{key}")
 
+    verdicts = _build_verdicts(raw, where)
     facts = _build_facts(raw["facts"], where)
     allowed = frozenset(facts) | ENGINE_PROVIDED_NAMES
 
-    rules = _build_rules(raw["rules"], allowed, facts, where)
+    rules = _build_rules(raw["rules"], allowed, facts, verdicts, where)
     escalations = _build_escalations(raw["escalate"], allowed, where)
+    default_verdict = _build_default_verdict(raw, verdicts, where)
+    critical_verdicts = _build_critical_verdicts(raw, verdicts, where)
 
     return Domain(
         name=str(raw["domain"]),
@@ -162,7 +186,53 @@ def _build_domain(raw: Mapping[str, Any], source: Path) -> Domain:
         rules=rules,
         escalations=escalations,
         source=source,
+        verdicts=verdicts,
+        default_verdict=default_verdict,
+        critical_verdicts=critical_verdicts,
     )
+
+
+def _build_verdicts(raw: Mapping[str, Any], where: str) -> frozenset[str]:
+    """判定值是"域的语言"。域不声明就用引擎默认的那一组。"""
+    declared = raw.get("verdicts")
+    if declared is None:
+        return _DEFAULT_VERDICTS
+    if not isinstance(declared, list) or not declared:
+        raise DomainError(f"{where}: verdicts 必须是非空列表，或整个字段省略以使用引擎默认值")
+    values = frozenset(str(item) for item in declared)
+    if len(values) != len(declared):
+        raise DomainError(f"{where}: verdicts 里有重复项")
+    return values
+
+
+def _build_default_verdict(
+    raw: Mapping[str, Any], verdicts: frozenset[str], where: str
+) -> str | None:
+    declared = raw.get("default_verdict")
+    if declared is None:
+        return None
+    value = str(declared)
+    if value not in verdicts:
+        raise DomainError(
+            f"{where}: default_verdict {value!r} 不在本域声明的判定值里"
+            f"（{', '.join(sorted(verdicts))}）"
+        )
+    return value
+
+
+def _build_critical_verdicts(
+    raw: Mapping[str, Any], verdicts: frozenset[str], where: str
+) -> frozenset[str]:
+    declared = raw.get("critical_verdicts", []) or []
+    if not isinstance(declared, list):
+        raise DomainError(f"{where}: critical_verdicts 必须是列表")
+    values = frozenset(str(item) for item in declared)
+    unknown = values - verdicts
+    if unknown:
+        raise DomainError(
+            f"{where}: critical_verdicts 里有未声明的判定值：{', '.join(sorted(unknown))}"
+        )
+    return values
 
 
 def _build_facts(raw_facts: Any, where: str) -> dict[str, Fact]:
@@ -235,6 +305,7 @@ def _build_rules(
     raw_rules: Any,
     allowed_names: frozenset[str],
     facts: Mapping[str, Fact],
+    verdicts: frozenset[str],
     where: str,
 ) -> tuple[Rule, ...]:
     if not isinstance(raw_rules, list) or not raw_rules:
@@ -258,10 +329,10 @@ def _build_rules(
                 raise DomainError(f"{where}: 规则 {rule_id} 缺少字段 {key}")
 
         verdict = str(item["verdict"])
-        if verdict not in _ALLOWED_VERDICTS:
+        if verdict not in verdicts:
             raise DomainError(
-                f"{where}: 规则 {rule_id} 的判定值 {verdict!r} 不支持"
-                f"（允许：{', '.join(sorted(_ALLOWED_VERDICTS))}）"
+                f"{where}: 规则 {rule_id} 的判定值 {verdict!r} 不在本域声明的判定值里"
+                f"（{', '.join(sorted(verdicts))}）"
             )
 
         cite = str(item["cite"]).strip()
