@@ -222,6 +222,69 @@ def cmd_mutate(args: argparse.Namespace) -> int:
     return 1 if report.real_gaps else 0
 
 
+def cmd_patch(args: argparse.Namespace) -> int:
+    """补丁闭环：从漏掉的案例里提取候选规则，验证不误伤，出待人审批的建议。"""
+    from agent.patch import propose_patches
+    from audit.inject import tempting_but_legit_phrases
+
+    metrics = load_metrics()
+    judged_cases = generate_reports(count=args.count, metrics=metrics, seed=DEFAULT_SEED)
+    cases = build_injected_dataset(judged_cases, metrics, seed=DEFAULT_SEED)
+
+    # 正例 = 护栏层抓不到的改写型越界（实测这类召回为 0%）
+    missed = sorted(
+        {
+            defect.observed
+            for case in cases
+            for defect in case.defects
+            if defect.kind == "safety_paraphrase"
+        }
+    )
+    # 反例语料要尽量厚，否则"零误报"这个结论不硬。
+    # 取全部样本的解释文本，但**排除被注入改写型越界的那一条**——
+    # 它本身就是正例的来源，混进反例会把自己过滤掉。
+    injected_targets = {
+        (case.case_id, defect.target)
+        for case in cases
+        for defect in case.defects
+        if defect.kind == "safety_paraphrase"
+    }
+    negatives: list[str] = [
+        item.explanation
+        for case in cases
+        for item in case.artifact.items
+        if (case.case_id, item.code) not in injected_targets
+    ]
+    negatives.extend(tempting_but_legit_phrases())
+
+    report = propose_patches(missed, negatives, max_patterns=args.max_patterns)
+
+    out = Path(args.report)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(report.to_markdown(), encoding="utf-8")
+
+    print("补丁闭环：从漏掉的案例里提取候选规则（**不会自动应用**）")
+    print()
+    print(f"  漏掉的案例        {report.missed_total} 条")
+    print(f"  尝试的候选片段    {report.candidates_tried} 个")
+    print(f"  干净语料          {report.negatives_total} 条（误报检验用）")
+    print(f"  建议采纳的规则    {len(report.proposals)} 条")
+    print(f"  覆盖漏例          {report.covered} / {report.missed_total}（{report.coverage:.1%}）")
+    print(f"  干净语料上的误报  {report.total_false_positives} 条")
+    print()
+    if not report.proposals:
+        print("  没有找到安全的候选片段——改提示词的泛化能力，而不是加字面规则。")
+    else:
+        for index, proposal in enumerate(report.proposals, start=1):
+            print(f"  建议 {index}：`{proposal.pattern}`  可补 {len(proposal.catches)} 条漏例")
+    print()
+    print("  ⚠️ 这些只是建议：请审阅后手工写进 agent/guardrails.py，并给每条配一个测试。")
+    print("  ⚠️ 字面规则永远追不上改写说法——它能覆盖的部分，提示词才是根治手段。")
+    print()
+    print(f"  报告 -> {out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m agent", description="审计 agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -275,6 +338,16 @@ def build_parser() -> argparse.ArgumentParser:
     mutate.add_argument("--id", help="只跑指定变异体（如 M03）")
     mutate.add_argument("--report", default=str(ROOT / "reports" / "mutation-report.md"))
     mutate.set_defaults(func=cmd_mutate)
+
+    patch = subparsers.add_parser(
+        "patch", help="补丁闭环：提取候选护栏规则（待人审批，不会自动应用）"
+    )
+    patch.add_argument("--count", type=int, default=60, help="生成多少份注入样本供取样")
+    patch.add_argument("--max-patterns", type=int, default=3, help="最多给几条建议")
+    patch.add_argument(
+        "--report", default=str(ROOT / "reports" / "patch-report.md")
+    )
+    patch.set_defaults(func=cmd_patch)
 
     return parser
 
