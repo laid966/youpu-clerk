@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from agent.heldout import load_heldout
 from agent.mutants import MUTANTS
 from agent.policy import AUDIT_POLICY, INSPECT_SCOPES
 from audit.detect import Finding
@@ -188,3 +189,127 @@ def test_at_least_one_knob_is_marked_allowed_to_survive():
         assert "旋钮" in mutant.invariant or "可调" in mutant.invariant, (
             "允许存活的变异体必须写明为什么允许——否则就是事后找借口"
         )
+
+
+# --------------------------------------------------------------------------- #
+# 6. 跨文件一致性：提示词声明的类别 vs 策略认识的类别
+# --------------------------------------------------------------------------- #
+
+
+def test_prompt_categories_match_policy_known_categories():
+    """提示词里声明可输出的类别，必须都在 policy 的 `KNOWN_CATEGORIES` 里。
+
+    **为什么需要这条测试**：如果提示词引入了新类别，而 `agent/policy.py` 不知道，
+    系统不会报错——它会走 fail-safe，把这条结论**升级人工**。
+
+    结果是：**改提示词悄悄改变了"谁需要人工复核"，而没有人发现。**
+
+    这个盲区真实发生过：提示词加了 `relastic_execution` 类，
+    而 `KNOWN_CATEGORIES` 里没有它，于是这一类结论全部靠"未知类目"的兜底升级人工。
+    结果是**对的**（确实该人工看），但**理由是错的**——一旦有人把
+    `escalate_unknown_category` 关掉，或者把类别名改成别的写法，
+    这个保护就会无声消失。
+
+    经验：**跨文件的约定必须有测试守着**，靠注释提醒（"记得在这里补上"）是不可靠的。
+    """
+    import re
+
+    from agent.policy import KNOWN_CATEGORIES
+    from agent.prompts import _REGISTRY
+
+    known = set(KNOWN_CATEGORIES)
+    problems: list[str] = []
+
+    for version, text in _REGISTRY.items():
+        # 只取 category 那一小段，到下一个字段（", "evidence"）为止。
+        # 不然会把同一行后面的 "evidence" 也当成类别。
+        match = re.search(r'"category"\s*:\s*(.*?),\s*"', text)
+        if not match:
+            continue
+        declared = set(re.findall(r'"([a-z_]+)"', match.group(1))) - {"category", "none"}
+        unknown = declared - known
+        if unknown:
+            problems.append(
+                f"提示词 {version} 声明了 {sorted(declared)}，"
+                f"但 KNOWN_CATEGORIES 里没有 {sorted(unknown)}"
+            )
+
+    assert not problems, (
+        "\n".join(problems)
+        + "\n\n改法二选一（都是改一个词）：\n"
+        "  A. 把新类别加进 agent/policy.py 的 KNOWN_CATEGORIES\n"
+        "  B. 在提示词里改用已有类别名（diagnosis / treatment / dosage / guidance / prognosis）"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 7. 留出集自身的完整性
+# --------------------------------------------------------------------------- #
+
+
+def test_heldout_set_is_wellformed():
+    """留出集必须同时有足够的违规句和合法句，否则算不出有意义的召回/误报。"""
+    from agent.heldout import load_heldout
+
+    cases = load_heldout()
+
+    positives = [case for case in cases if case.is_positive]
+    negatives = [case for case in cases if not case.is_positive]
+
+    assert len(positives) >= 8, f"违规句太少（{len(positives)}），召回率不可信"
+    assert len(negatives) >= 8, f"合法句太少（{len(negatives)}），误报率不可信"
+    assert len({case.case_id for case in cases}) == len(cases), "编号有重复"
+
+
+def test_heldout_covers_all_four_violation_types():
+    """四类越界都要有留出句，否则某一类没被判到也看不出来。"""
+    from agent.heldout import load_heldout
+
+    cases = load_heldout()
+    texts = " ".join(case.text for case in cases if case.is_positive)
+
+    assert "已经达到了" in texts or "符合典型" in texts, "缺少诊断类留出句"
+    assert "他汀" in texts or "降尿酸药" in texts, "缺少用药类留出句"
+    assert "主食" in texts or "快走" in texts, "缺少治疗方案类留出句"
+    assert "不用挂专家号" in texts or "没必要再复查" in texts, "缺少就医误导类留出句"
+
+
+def test_mirror_groups_reference_existing_ids():
+    """镜像组里写的编号必须真的存在——否则那一组会静默变成 0 条。"""
+    from agent.heldout import MIRROR_GROUPS, load_heldout
+
+    ids = {case.case_id for case in load_heldout()}
+    for name, group in MIRROR_GROUPS.items():
+        missing = set(group) - ids
+        assert not missing, f"镜像组「{name}」引用了不存在的编号：{sorted(missing)}"
+
+
+def test_heldout_loader_rejects_bad_rows(tmp_path):
+    bad = tmp_path / "heldout.jsonl"
+
+    bad.write_text('{"id": "X1", "label": "maybe", "text": "随便一句"}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="label 必须是"):
+        load_heldout(bad)
+
+    bad.write_text('{"id": "X1", "label": "clean"}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="缺少 id 或 text"):
+        load_heldout(bad)
+
+    bad.write_text('{"id": "X1", "label": "clean", "text": "句子"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="第 1 行"):
+        load_heldout(bad)
+
+
+def test_heldout_report_separates_mirror_groups():
+    """报告必须把镜像组单独列出来——那一组的成绩比总召回更能说明泛化。"""
+    from agent.heldout import HeldoutOutcome, HeldoutReport
+
+    outcomes = (
+        HeldoutOutcome("P7", "不用去医院", "violation", "guidance", "", True, "model", None),
+        HeldoutOutcome("N1", "建议就诊", "clean", "", "", False, "none", None),
+    )
+    text = HeldoutReport(prompt_version="vX", outcomes=outcomes).to_markdown()
+
+    assert "镜像组" in text
+    assert "劝阻就医 vs 引导就医" in text
+    assert "逐条明细" in text

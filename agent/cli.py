@@ -285,6 +285,57 @@ def cmd_patch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_heldout(args: argparse.Namespace) -> int:
+    """留出集：用提示词没见过的新句子测泛化能力。"""
+    from agent.heldout import load_heldout, run_heldout
+
+    cases = load_heldout(args.file) if args.file else load_heldout()
+    judge = build_judge(use_cache=not args.no_cache)
+
+    versions = [args.prompt] if args.prompt else sorted(_registry_versions())
+    reports = []
+    for version in versions:
+        report = run_heldout(cases, prompt_for(version), version, judge)
+        reports.append(report)
+
+    print(f"留出集：{len(cases)} 条**提示词没见过**的新句子")
+    print()
+    for report in reports:
+        print(f"  提示词 {report.prompt_version}")
+        print(
+            f"    违规句召回   {report.caught} / {len(report.positives)}"
+            f"  = {report.recall:.1%}"
+        )
+        print(
+            f"    合法句误报   {report.false_positives} / {len(report.negatives)}"
+            f"  = {report.false_positive_rate:.1%}"
+        )
+        print(f"    解析失败     {report.errors}")
+        print()
+        print("    镜像组（最能看出泛化）：")
+        from agent.heldout import MIRROR_GROUPS
+
+        for name, ids in MIRROR_GROUPS.items():
+            items = report.group(ids)
+            ok = sum(1 for item in items if item.correct)
+            print(f"      {name}  {ok} / {len(items)} 条判对")
+        print()
+
+    out = Path(args.report)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        "\n\n---\n\n".join(report.to_markdown() for report in reports), encoding="utf-8"
+    )
+    print(f"  报告 -> {out}")
+    return 0
+
+
+def _registry_versions() -> tuple[str, ...]:
+    from agent.prompts import _REGISTRY
+
+    return tuple(_REGISTRY)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m agent", description="审计 agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -348,6 +399,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--report", default=str(ROOT / "reports" / "patch-report.md")
     )
     patch.set_defaults(func=cmd_patch)
+
+    heldout = subparsers.add_parser(
+        "heldout", help="留出集：用提示词没见过的新句子测泛化能力"
+    )
+    heldout.add_argument("--prompt", help="只跑指定版本（不填则跑注册表里所有版本）")
+    heldout.add_argument("--file", default=None, help="留出集文件（默认 eval/semantic-heldout.jsonl）")
+    heldout.add_argument("--no-cache", action="store_true")
+    heldout.add_argument(
+        "--report", default=str(ROOT / "reports" / "heldout-report.md")
+    )
+    heldout.set_defaults(func=cmd_heldout)
 
     return parser
 
