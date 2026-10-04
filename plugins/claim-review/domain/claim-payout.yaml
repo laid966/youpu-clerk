@@ -1,0 +1,58 @@
+# 理赔场景 · 赔付比例判定域
+#
+# ⚠️ 纯虚构演示条款，不构成任何理赔依据。
+
+domain: claim-payout
+version: 1.0.0
+note: 纯虚构演示条款，不构成任何理赔依据。
+
+verdicts: [eligible, review, excluded]
+default_verdict: excluded
+critical_verdicts: []
+
+facts:
+  - name: sex
+    type: enum
+    values: [male, female]
+
+  - name: age
+    type: number
+    minimum: 0
+    maximum: 120
+    boundaries: [18]
+
+  - name: payout_ratio
+    type: number
+    unit: "%"
+    minimum: 0
+    maximum: 100
+    boundaries: [50, 80, 100]
+
+rules:
+  - id: RATIO-FULL
+    when: 'payout_ratio >= 100'
+    verdict: review
+    cite: 理赔条款 4.2：赔付比例 80% 以上需人工核赔
+    priority: 30
+
+  - id: RATIO-HIGH
+    when: 'payout_ratio >= 80'
+    verdict: review
+    cite: 理赔条款 4.2：赔付比例 80% 以上需人工核赔
+    priority: 20
+
+  - id: RATIO-MID
+    when: 'payout_ratio >= 50'
+    verdict: eligible
+    cite: 理赔条款 4.2：赔付比例 80% 以上需人工核赔
+    priority: 15
+
+  - id: RATIO-LOW
+    when: 'payout_ratio < 50'
+    verdict: excluded
+    cite: 理赔条款 4.2：赔付比例 80% 以上需人工核赔
+    priority: 10
+
+escalate:
+  - when: 'age < 18'
+    reason: 未成年人理赔需监护人办理，转人工

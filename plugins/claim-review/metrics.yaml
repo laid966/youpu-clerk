@@ -1,0 +1,24 @@
+# 理赔场景的字段清单
+
+disclaimer: 本插件为虚构演示，不构成任何理赔依据；真实理赔以条款与核赔结论为准。
+
+metrics:
+  - code: deductible
+    name: 免赔额
+    abbr: DED
+    panel: 赔付计算
+    unit: 元
+    domain: plugins/claim-review/domain/claim-deductible.yaml
+    reference:
+      male: [0, 1000]
+      female: [0, 1000]
+
+  - code: payout_ratio
+    name: 赔付比例
+    abbr: RATIO
+    panel: 赔付计算
+    unit: "%"
+    domain: plugins/claim-review/domain/claim-payout.yaml
+    reference:
+      male: [0, 100]
+      female: [0, 100]

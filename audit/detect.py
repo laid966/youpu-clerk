@@ -187,9 +187,14 @@ def citation_existence(ctx: DetectorContext) -> Iterable[Finding]:
 
 
 def advice_contract(ctx: DetectorContext) -> Iterable[Finding]:
-    """内部矛盾：判定等级与建议动作必须匹配。"""
+    """内部矛盾：判定等级与建议动作必须匹配。
+
+    「判定 → 应有建议」这张表**由场景插件提供**，本体不写死——
+    体检是"危急→建议立即就医"，信贷是"拒绝→不予放款"。
+    """
+    advice_map = ctx.advice_by_verdict
     for item, metric in ctx.items():
-        expected_advice = ADVICE_BY_SEVERITY.get(item.severity)
+        expected_advice = advice_map.get(item.severity)
         if expected_advice is not None and item.advice != expected_advice:
             yield Finding(
                 detector="advice_contract",
@@ -202,9 +207,14 @@ def advice_contract(ctx: DetectorContext) -> Iterable[Finding]:
 
 
 def safety_terms(ctx: DetectorContext) -> Iterable[Finding]:
-    """安全越界：出现诊断口吻或用药建议。**这一层只能抓露骨写法。**"""
+    """安全越界：出现本场景的禁用表达。
+
+    **词表由场景插件提供**，本体不写死——这是"本体不认识行业"的直接体现。
+    这一层只能抓露骨写法；改写型越界要靠语义检查（那部分的提示词也是插件件）。
+    """
+    terms = ctx.safety_terms
     for item, metric in ctx.items():
-        hit_terms = [term for term in SAFETY_TERMS if term in item.explanation]
+        hit_terms = [term for term in terms if term in item.explanation]
         if hit_terms:
             yield Finding(
                 detector="safety_terms",
@@ -307,11 +317,15 @@ def detect(
     age: int,
     metrics: Sequence[Metric],
     registry: DetectorRegistry | None = None,
+    plugin: Any = None,
 ) -> tuple[Finding, ...]:
     """对一份产物跑全部已注册的检查器。
 
     需要报告原值：这是**差分审计的前提**——审计器必须能看到源数据，
     否则它只能核对"话有没有依据"，无法核对"判定对不对"。
+
+    `plugin` 是场景插件清单：本体需要的行业知识（安全词表、判定→建议映射）
+    从它读。**传不同的 plugin、跑同一套检查器** —— 这就是本体独立的样子。
     """
     ctx = DetectorContext(
         artifact=artifact,
@@ -319,6 +333,7 @@ def detect(
         sex=sex,
         age=age,
         metrics=metrics,
+        plugin=plugin,
     )
     active = registry or DEFAULT_REGISTRY
     return tuple(active.run_all(ctx))

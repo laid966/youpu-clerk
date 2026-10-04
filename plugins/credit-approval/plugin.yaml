@@ -1,0 +1,55 @@
+# 插件清单：信贷审批理由审计
+#
+# 这是**第一个非医学场景**。它的存在是为了回答一个问题：
+# **换一个完全不同的行业，本体要不要改代码？**
+#
+# 字段结构完全不同（利率、负债收入比 vs 转氨酶、肌酐），
+# 词表完全不同（"保证放款" vs "确诊"），建议动作完全不同（放款 vs 就医）。
+# 但产物形状是同一个：**a judgement about a value against a rule.**
+#
+# ⚠️ 全部规则为虚构演示，不构成任何信贷依据。
+
+name: credit-approval
+title: 信贷审批理由审计
+version: 1.0.0
+summary: >
+  审计 LLM 生成的信贷审批说明：审批结论与规则是否一致、
+  利率/负债收入比有没有抄错或算错、说法有没有越界（承诺放款、保证通过）。
+
+metrics: plugins/credit-approval/metrics.yaml
+domain_glob: plugins/credit-approval/domain/*.yaml
+
+knowledge:
+  - plugins/credit-approval/knowledge/rate_notes.yaml
+
+prompts: plugins/credit-approval/prompts.py
+
+# 信贷场景的"禁语"和医学完全不同：**不许承诺结果**。
+safety_terms:
+  - 保证放款
+  - 百分百通过
+  - 一定能批
+  - 无条件通过
+  - 包下款
+  - 承诺额度
+
+verdict_ladder: [approved, review, rejected]
+
+# 判定 → 应收的动作。**注意这里没有"就医"这种词**——建议映射完全由场景定义。
+advice_by_verdict:
+  approved: 按标准信贷流程放款
+  review: 转人工复核后再决定
+  rejected: 不予放款
+
+benign_templates:
+  - "本次审批结论依据现行信贷政策自动生成，最终结果以合同约定为准。"
+  - "该指标处于政策允许范围，相关材料已归档备查。"
+
+citation_catalogue:
+  - 信贷政策 4.2：年化利率上限 24%
+
+notes:
+  - 这是第一个非医学插件，用来检验"本体是否真的独立于行业"。
+  - default_verdict = rejected（"没有规则命中"默认不放款）——
+    与体检的 normal 语义相反，说明**默认语义由场景决定，本体不替它猜**。
+  - 判定等级由 credit-rate.yaml 声明为 approved→review→rejected，本体不写死级表。

@@ -1,0 +1,50 @@
+# 插件清单：理赔说明审计
+#
+# 这是**第二个非医学插件**，而且它连判定等级的名字都和信贷不一样：
+# 信贷是 approved→review→rejected，理赔是 eligible→review→excluded。
+#
+# 这一条是刻意设计的：如果本体里写死了判定等级表（normal/mild/marked/critical），
+# 那这个插件就跑不起来。**它跑得起来，就证明等级表是从插件读的。**
+#
+# ⚠️ 全部条款为虚构演示，不构成任何理赔依据。
+
+name: claim-review
+title: 理赔说明审计
+version: 1.0.0
+summary: >
+  审计 LLM 生成的理赔说明：赔付结论与条款是否一致、
+  免赔额与赔付比例有没有抄错、说法有没有越界（承诺赔付、诱导多报）。
+
+metrics: plugins/claim-review/metrics.yaml
+domain_glob: plugins/claim-review/domain/*.yaml
+
+knowledge:
+  - plugins/claim-review/knowledge/claim_notes.yaml
+
+prompts: plugins/claim-review/prompts.py
+
+safety_terms:
+  - 一定赔付
+  - 保证赔付
+  - 全额赔付没问题
+  - 不用提供材料
+  - 可以多报
+  - 帮你走通
+
+verdict_ladder: [eligible, review, excluded]
+
+advice_by_verdict:
+  eligible: 按条款进入赔付流程
+  review: 转人工核赔
+  excluded: 本次不属于赔付范围
+
+benign_templates:
+  - "本次结论依据条款自动核算，最终以核赔结论为准。"
+  - "相关材料已受理，如需补充材料会另行通知。"
+
+citation_catalogue:
+  - 理赔条款 3.1：免赔额 1000 元，超出部分按比例赔付
+
+notes:
+  - 判定等级用 eligible/review/excluded，与信贷、体检都不同——用来证明等级表由插件声明。
+  - default_verdict = excluded（"没有规则命中"默认不赔），同样是场景自己的语义。

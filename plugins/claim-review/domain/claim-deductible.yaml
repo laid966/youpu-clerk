@@ -1,0 +1,58 @@
+# 理赔场景 · 免赔额判定域
+#
+# ⚠️ 纯虚构演示条款，不构成任何理赔依据。
+
+domain: claim-deductible
+version: 1.0.0
+note: 纯虚构演示条款，不构成任何理赔依据。
+
+verdicts: [eligible, review, excluded]
+default_verdict: excluded
+critical_verdicts: []
+
+facts:
+  - name: sex
+    type: enum
+    values: [male, female]
+
+  - name: age
+    type: number
+    minimum: 0
+    maximum: 120
+    boundaries: [18]
+
+  - name: deductible
+    type: number
+    unit: 元
+    minimum: 0
+    maximum: 100000
+    boundaries: [500, 1000, 5000]
+
+rules:
+  - id: DED-HIGH
+    when: 'deductible > 5000'
+    verdict: excluded
+    cite: 理赔条款 3.1：免赔额 1000 元，超出部分按比例赔付
+    priority: 30
+
+  - id: DED-REVIEW
+    when: 'deductible > 1000'
+    verdict: review
+    cite: 理赔条款 3.1：免赔额 1000 元，超出部分按比例赔付
+    priority: 20
+
+  - id: DED-ELIGIBLE
+    when: 'deductible <= 500'
+    verdict: eligible
+    cite: 理赔条款 3.1：免赔额 1000 元，超出部分按比例赔付
+    priority: 10
+
+  - id: DED-REVIEW-MID
+    when: 'deductible > 500'
+    verdict: review
+    cite: 理赔条款 3.1：免赔额 1000 元，超出部分按比例赔付
+    priority: 15
+
+escalate:
+  - when: 'age < 18'
+    reason: 未成年人理赔需监护人办理，转人工

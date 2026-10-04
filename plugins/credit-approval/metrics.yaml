@@ -1,0 +1,31 @@
+# 信贷场景的字段清单
+#
+# 结构与 domain/med-metrics.yaml 完全一致——**因为字段清单的格式是本体的一部分，
+# 内容才是插件的。** 换行业只换这个文件，不换格式。
+#
+# ⚠️ reference 需要 male/female 两个键，这是医学场景留下的历史格式（参考区间分男女）。
+# 信贷场景与性别无关，所以两个键填一样的值。
+# 这处不自然是真实的：**字段清单的格式还没完全抽象干净**，见本插件的 notes。
+
+disclaimer: 本插件为虚构演示，不构成任何信贷依据；真实审批请以机构政策与合同为准。
+
+metrics:
+  - code: rate
+    name: 年化利率
+    abbr: RATE
+    panel: 授信条件
+    unit: "%"
+    domain: plugins/credit-approval/domain/credit-rate.yaml
+    reference:
+      male: [3.6, 24]
+      female: [3.6, 24]
+
+  - code: dti
+    name: 负债收入比
+    abbr: DTI
+    panel: 还款能力
+    unit: "%"
+    domain: plugins/credit-approval/domain/credit-dti.yaml
+    reference:
+      male: [0, 70]
+      female: [0, 70]

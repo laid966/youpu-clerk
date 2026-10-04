@@ -70,6 +70,30 @@ class DetectorContext:
     sex: str
     age: int
     metrics: Sequence[Metric]
+    plugin: Any = None
+    """该场景的插件清单（`plugin.spec.PluginSpec`）。
+
+    **这就是"本体不认识行业"的落点**：本体需要的行业知识（安全词表、判定→建议映射）
+    全部从这里读。为 `None` 时退回核心默认常量（医学演示的那套），
+    这样旧调用方一行都不用改。"""
+
+    @property
+    def safety_terms(self) -> tuple[str, ...]:
+        """本场景的禁用表达表。由插件提供，本体不写死。"""
+        if self.plugin is not None:
+            return tuple(self.plugin.safety_terms)
+        from audit.artifact import SAFETY_TERMS
+
+        return tuple(SAFETY_TERMS)
+
+    @property
+    def advice_by_verdict(self) -> Mapping[str, str]:
+        """本场景的「判定 → 应有建议动作」映射。由插件提供，本体不写死。"""
+        if self.plugin is not None:
+            return dict(self.plugin.advice_by_verdict)
+        from audit.artifact import ADVICE_BY_SEVERITY
+
+        return dict(ADVICE_BY_SEVERITY)
 
     @property
     def by_code(self) -> Mapping[str, Metric]:

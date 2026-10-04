@@ -1,0 +1,63 @@
+# 信贷场景 · 年化利率判定域
+#
+# ⚠️ 纯虚构演示规则，不构成任何信贷依据。
+#
+# 设计要点（与体检场景刻意相反，用来证明"语义由场景声明"）：
+# **default_verdict = rejected** —— 没有规则命中时默认不放款。
+# 体检场景是 normal（没命中=一切正常），信贷场景是 rejected（没命中=不放行）。
+# 同一个引擎，两种完全相反的业务语义，**本体一行代码都不用改**。
+
+domain: credit-rate
+version: 1.0.0
+note: 纯虚构演示规则，不构成任何信贷依据。
+
+verdicts: [approved, review, rejected]
+default_verdict: rejected
+critical_verdicts: []
+
+facts:
+  - name: sex
+    type: enum
+    values: [male, female]
+
+  - name: age
+    type: number
+    minimum: 18
+    maximum: 100
+    boundaries: [60]
+
+  - name: rate
+    type: number
+    unit: "%"
+    minimum: 0
+    maximum: 60
+    boundaries: [8, 15, 24]
+
+rules:
+  - id: RATE-REJECT
+    when: 'rate > 24'
+    verdict: rejected
+    cite: 信贷政策 4.2：年化利率上限 24%
+    priority: 30
+
+  - id: RATE-REVIEW-HIGH
+    when: 'rate > 15'
+    verdict: review
+    cite: 信贷政策 4.2：年化 15%–24% 需人工复核
+    priority: 20
+
+  - id: RATE-REVIEW-LOW
+    when: 'rate > 8'
+    verdict: review
+    cite: 信贷政策 4.2：年化 8%–24% 需人工复核
+    priority: 15
+
+  - id: RATE-APPROVE
+    when: 'rate <= 8'
+    verdict: approved
+    cite: 信贷政策 4.2：年化利率上限 24%
+    priority: 10
+
+escalate:
+  - when: 'age > 60'
+    reason: 高龄申请人需人工复核还款能力
