@@ -46,6 +46,10 @@ safety_terms:
 # 判定等级由轻到重。**引擎里的 verdicts 是集合，顺序会丢，所以必须在这里显式声明。**
 verdict_ladder: [normal, mild, marked, critical]
 
+# 判定稳健性审计用的误差量级：医学检验的批间差异通常在 1% 量级。
+# **这是场景知识**——信贷、理赔的误差来源完全不同，所以由插件声明而不是写进本体。
+measurement_tolerance: 0.01
+
 # 判定 → 应有的建议动作。与 audit/artifact.py 的 ADVICE_BY_SEVERITY 一致。
 advice_by_verdict:
   normal: 无需处理，按常规体检频率复查

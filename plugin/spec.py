@@ -32,6 +32,14 @@ ROOT = Path(__file__).resolve().parents[1]
 PLUGINS_DIR = ROOT / "plugins"
 MANIFEST_NAME = "plugin.yaml"
 
+#: 判定阈值附近的"误差"默认量级：1%。
+#: 场景不同、误差来源也不同，所以这个值**由插件声明**：
+#: 医学是检验批间差异，信贷是利率四舍五入/口径误差，理赔是金额计算精度。
+#:
+#: 与 `audit/robustness.py` 的 `DEFAULT_TOLERANCE` 是同一个数——
+#: 那个是"没给插件时"的兜底，两处一致由测试守着（同 SAFETY_TERMS 的做法）。
+DEFAULT_MEASUREMENT_TOLERANCE = 0.01
+
 _REQUIRED = (
     "name",
     "title",
@@ -72,6 +80,12 @@ class PluginSpec:
     **顺序属于场景知识，所以放在插件里，不放进本体。**
     """
     verdict_source_field: str = "severity"
+    measurement_tolerance: float = DEFAULT_MEASUREMENT_TOLERANCE
+    """判定阈值附近的**误差量级**，用于判定稳健性审计（"这个结论离临界值多近"）。
+
+    场景不同、来源也不同：医学是检验批间差异，信贷是四舍五入/口径误差。
+    **所以它属于场景知识，由插件声明，不写进本体。**
+    """
     notes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -107,6 +121,7 @@ class PluginSpec:
             "citation_catalogue": list(self.citation_catalogue),
             "verdict_ladder": list(self.verdict_ladder),
             "verdict_source_field": self.verdict_source_field,
+            "measurement_tolerance": self.measurement_tolerance,
             "notes": list(self.notes),
         }
 
@@ -126,6 +141,7 @@ class PluginSpec:
             f"| 安全词表 | {'、'.join(self.safety_terms) or '（空）'} |",
             f"| 判定→建议 | {'、'.join(f'{k}→{v}' for k, v in self.advice_by_verdict.items()) or '（空）'} |",
             f"| 判定等级（轻→重） | {' → '.join(self.verdict_ladder) or '（未声明）'} |",
+            f"| 稳健性误差量级 | ±{self.measurement_tolerance:.2%} |",
             f"| 合法引用 | {'、'.join(self.citation_catalogue) or '（空，引用检查将始终报错）'} |",
         ]
         if self.notes:
@@ -158,6 +174,22 @@ def _resolve(raw: Any, field: str) -> Path:
             f"（清单里的路径一律相对仓库根 {ROOT}）"
         )
     return resolved
+
+
+def _tolerance(raw: object) -> float:
+    """校验插件声明的误差量级。**错值直接报错，不兜底。**"""
+    if raw is None:
+        return DEFAULT_MEASUREMENT_TOLERANCE
+    try:
+        value = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise PluginError(f"measurement_tolerance 必须是数字，收到 {raw!r}") from exc
+    if not 0 < value <= 0.5:
+        raise PluginError(
+            f"measurement_tolerance 必须在 (0, 0.5] 之间，收到 {value}。"
+            "超过 50% 就不是「误差」而是「换了个数」，那样算出来的脆弱率没有意义。"
+        )
+    return value
 
 
 def load_plugin(path: str | Path) -> PluginSpec:
@@ -209,6 +241,7 @@ def load_plugin(path: str | Path) -> PluginSpec:
         citation_catalogue=tuple(str(item) for item in (raw.get("citation_catalogue") or ())),
         verdict_ladder=tuple(str(item) for item in (raw.get("verdict_ladder") or ())),
         verdict_source_field=str(raw.get("verdict_source_field") or "severity"),
+        measurement_tolerance=_tolerance(raw.get("measurement_tolerance")),
         notes=tuple(str(item) for item in (raw.get("notes") or ())),
     )
 

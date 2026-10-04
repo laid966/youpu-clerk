@@ -35,6 +35,11 @@ safety_terms:
 
 verdict_ladder: [approved, review, rejected]
 
+# ⚠️ 这里**不是测量误差**：利率是精确约定的数，不存在"测不准"。
+# 这里的 0.5% 代表**四舍五入与口径误差**（日利率换算年化、费用计入方式差异）。
+# 同一个机制在不同场景下含义不同——这正是它必须由插件声明的原因。
+measurement_tolerance: 0.005
+
 # 判定 → 应收的动作。**注意这里没有"就医"这种词**——建议映射完全由场景定义。
 advice_by_verdict:
   approved: 按标准信贷流程放款

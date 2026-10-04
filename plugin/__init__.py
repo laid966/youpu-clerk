@@ -34,17 +34,21 @@ plugins/credit-approval/
 """
 
 from plugin.spec import (
+    DEFAULT_MEASUREMENT_TOLERANCE,
     PluginError,
     PluginSpec,
     discover_plugins,
+    find_plugin,
     load_plugin,
     load_prompts,
 )
 
 __all__ = [
+    "DEFAULT_MEASUREMENT_TOLERANCE",
     "PluginError",
     "PluginSpec",
     "discover_plugins",
+    "find_plugin",
     "load_plugin",
     "load_prompts",
 ]

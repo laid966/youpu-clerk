@@ -313,3 +313,61 @@ def test_heldout_report_separates_mirror_groups():
     assert "镜像组" in text
     assert "劝阻就医 vs 引导就医" in text
     assert "逐条明细" in text
+
+
+# --------------------------------------------------------------------------- #
+# 8. 基准构成不得因无关的内容改动而漂移
+# --------------------------------------------------------------------------- #
+
+
+def test_content_edits_do_not_change_the_benchmark_composition(monkeypatch):
+    """给注入句表加一句，**数据集的构成必须一点不变**。
+
+    真实缺陷回归（这一条是修完 bug 之后补的）：
+
+    原先所有注入算子**共用一条顺序随机流**（`random.Random(seed + 131)`），
+    而 `random.choice` 消耗的随机字数量**取决于列表长度**。
+    于是"给注入句表加一句话"这种**纯内容改动**，会把整条流往后推——
+    实测让带合法变体的干净样本从 19 份掉到 14 份，
+    **误报率的真正考验被悄悄削弱，而所有既有指标看起来毫无变化。**
+
+    这就是"基准构成漂移"：你分不清数字变了是因为你的改动，还是因为题目换了。
+    现在每个算子用 `(seed, 报告编号, 算子名)` 派生的独立随机流，这条测试盯着它。
+    """
+    from audit.inject import build_injected_dataset, paraphrase_phrases
+    from audit.pipeline import load_metrics
+    from audit.synth import DEFAULT_SEED, generate_reports
+    import audit.inject as inject_module
+
+    metrics = load_metrics()
+    judged = generate_reports(count=40, metrics=metrics, seed=DEFAULT_SEED)
+
+    def signature(cases):
+        """只取"构成"：样本编号、是否干净、变体名、缺陷的种类与目标。
+
+        **刻意不含 defect.observed**（注入了哪句话）——句表改了，那句话本就该变。
+        """
+        return [
+            (
+                case.case_id,
+                case.clean,
+                case.variation,
+                tuple((defect.kind, defect.target) for defect in case.defects),
+            )
+            for case in cases
+        ]
+
+    before = signature(build_injected_dataset(judged, metrics, seed=DEFAULT_SEED))
+    assert before, "基准不该是空的"
+
+    monkeypatch.setattr(
+        inject_module,
+        "_PARAPHRASE_PHRASES",
+        paraphrase_phrases() + ("这条是测试新增的越界句，用来验证构成不漂移。",),
+    )
+    after = signature(build_injected_dataset(judged, metrics, seed=DEFAULT_SEED))
+
+    assert before == after, (
+        "加了一句注入句之后基准构成变了——说明随机流又被耦合了。\n"
+        "改内容不该改题目：否则指标一变，你分不清是改动导致的还是题目换了。"
+    )

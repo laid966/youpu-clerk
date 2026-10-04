@@ -150,6 +150,92 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fragility(args: argparse.Namespace) -> int:
+    """判定稳健性审计：这个结论离临界值有多近。
+
+    **与召回/误报完全分开**：脆弱项是风险提示，不是"AI 抄错了"。
+    零模型调用、零成本、完全确定性。
+    """
+    from audit.robustness import scan_artifact, scan_boundaries, scan_uniform
+    from plugin.spec import PluginError, find_plugin
+
+    # 场景内容来自插件（阈值、误差量级都随插件走），本体不写死
+    try:
+        spec = find_plugin(args.plugin)
+    except PluginError as exc:
+        print(f"[x] {exc}")
+        return 2
+
+    metrics = load_metrics(spec.metrics)
+    tolerance = args.tolerance if args.tolerance is not None else spec.measurement_tolerance
+
+    if args.artifact:
+        import json
+
+        payload = json.loads(Path(args.artifact).read_text(encoding="utf-8-sig"))
+        from audit.artifact import Artifact
+
+        artifact = Artifact.from_dict(payload["artifact"])
+        values = payload.get("report_values", {})
+        sex = payload.get("sex", args.sex)
+        age = int(payload.get("age", args.age))
+        report = scan_artifact(
+            artifact, values, sex, age, metrics, tolerance=tolerance
+        )
+    elif args.mode == "uniform":
+        report = scan_uniform(
+            metrics,
+            sex=args.sex,
+            age=args.age,
+            tolerance=tolerance,
+            samples_per_metric=args.samples,
+        )
+    else:
+        report = scan_boundaries(
+            metrics, sex=args.sex, age=args.age, tolerance=tolerance
+        )
+
+    out = (
+        Path(args.report)
+        if args.report
+        else (ROOT / "reports" / f"fragility-{spec.name}.md")
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    header = (
+        f"# 判定稳健性报告 · 插件 `{spec.name}`\n\n"
+        f"> 探测方式：**{report.mode_label}** · 年龄 {args.age} · 性别 {args.sex}\n\n---\n\n"
+    )
+    out.write_text(header + report.to_markdown(), encoding="utf-8")
+
+    print(f"插件 `{spec.name}` · {spec.title}")
+    print(f"探测方式：{report.mode_label} · 误差量级 ±{tolerance:.2%}（来自插件声明）")
+    print()
+    print(f"  探测点            {report.probes}")
+    print(f"  判定会翻转        {report.fragile}")
+    print(f"  判定脆弱率        {report.fragile_rate:.1%}")
+    print(f"  紧贴临界值        {len(report.boundary_adjacent)}")
+    print()
+    print("⚠️ 这个比例怎么读：")
+    for line in report.caveat.splitlines():
+        print(f"   {line}")
+    print()
+    print("没算出来的部分（不静默跳过）：")
+    print(f"  域里没有该指标的阈值   {report.skipped_no_boundaries}")
+    print(f"  扰动会越出取值范围     {report.skipped_out_of_range}")
+    print(f"  判定落在缺事实转人工   {report.skipped_needs_review}")
+    print()
+    if report.findings:
+        print("最脆弱的几项：")
+        for item in sorted(report.findings, key=lambda x: x.smallest_delta)[:5]:
+            print(f"  {item.describe()}")
+    else:
+        print("所有可评估探测点的判定在给定误差范围内都稳定。")
+    print()
+    print("⚠️ 脆弱项算不算缺陷是产品判断，见 docs/02-metrics.md —— 本工具只给事实。")
+    print(f"  报告 -> {out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m audit",
@@ -188,6 +274,39 @@ def build_parser() -> argparse.ArgumentParser:
         "--report", default=str(ROOT / "reports" / "detector-report.md")
     )
     eval_cmd.set_defaults(func=cmd_eval)
+
+    fragility = subparsers.add_parser(
+        "fragility",
+        help="判定稳健性审计：这个结论离临界值有多近（零成本、与召回分开统计）",
+    )
+    fragility.add_argument(
+        "--plugin", default="med-checkup", help="场景插件（阈值与误差量级随它走）"
+    )
+    fragility.add_argument(
+        "--tolerance", type=float, default=None, help="覆盖插件声明的误差量级，如 0.01"
+    )
+    fragility.add_argument(
+        "--mode",
+        default="thresholds",
+        choices=["thresholds", "uniform"],
+        help="thresholds=钉着阈值测（看阈值多敏感）；uniform=参考区间窄带均匀取样（无阈值偏差）",
+    )
+    fragility.add_argument(
+        "--samples",
+        type=int,
+        default=1000,
+        help="uniform 模式下每个指标取多少个点（默认 1000；纯计算，0.5 秒。"
+        "取样太少会得到假的 0%%，见 audit/robustness.py 的说明）",
+    )
+    fragility.add_argument("--sex", default="male", choices=["male", "female"])
+    fragility.add_argument("--age", type=int, default=35)
+    fragility.add_argument(
+        "--artifact", default=None, help="改为扫描单份产物（JSON：artifact/report_values/sex/age）"
+    )
+    fragility.add_argument(
+        "--report", default=None, help="报告路径（默认 reports/fragility-<插件>.md）"
+    )
+    fragility.set_defaults(func=cmd_fragility)
 
     return parser
 

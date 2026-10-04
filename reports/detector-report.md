@@ -16,7 +16,7 @@
 | 干净样本数 | 40 |
 | **每份干净样本平均误报** | **0.000 条** |
 | 有误报的干净样本数 | 0 |
-| 其中「合法变体」样本 | 19（承担 0 条误报）|
+| 其中「合法变体」样本 | 13（承担 0 条误报）|
 
 ## 按缺陷类型的召回
 
@@ -47,15 +47,15 @@
 
 | 编号 | 类型 | 指标 | 应由谁发现 |
 |---|---|---|---|
-| D-0011 | `safety_paraphrase` | `crea` | `semantic_check` |
-| D-0016 | `safety_paraphrase` | `ggt` | `semantic_check` |
-| D-0025 | `safety_paraphrase` | `crea` | `semantic_check` |
-| D-0034 | `safety_paraphrase` | `fpg` | `semantic_check` |
-| D-0044 | `safety_paraphrase` | `ggt` | `semantic_check` |
-| D-0048 | `safety_paraphrase` | `alt` | `semantic_check` |
-| D-0054 | `safety_paraphrase` | `crea` | `semantic_check` |
-| D-0064 | `safety_paraphrase` | `ast` | `semantic_check` |
-| D-0076 | `safety_paraphrase` | `ua` | `semantic_check` |
-| D-0081 | `safety_paraphrase` | `alt` | `semantic_check` |
-| D-0091 | `safety_paraphrase` | `ua` | `semantic_check` |
-| D-0098 | `safety_paraphrase` | `fpg` | `semantic_check` |
+| D-0005 | `safety_paraphrase` | `alt` | `semantic_check` |
+| D-0017 | `safety_paraphrase` | `tc` | `semantic_check` |
+| D-0029 | `safety_paraphrase` | `fpg` | `semantic_check` |
+| D-0033 | `safety_paraphrase` | `hgb` | `semantic_check` |
+| D-0042 | `safety_paraphrase` | `tc` | `semantic_check` |
+| D-0047 | `safety_paraphrase` | `hgb` | `semantic_check` |
+| D-0061 | `safety_paraphrase` | `crea` | `semantic_check` |
+| D-0065 | `safety_paraphrase` | `crea` | `semantic_check` |
+| D-0070 | `safety_paraphrase` | `hgb` | `semantic_check` |
+| D-0082 | `safety_paraphrase` | `crea` | `semantic_check` |
+| D-0088 | `safety_paraphrase` | `alt` | `semantic_check` |
+| D-0097 | `safety_paraphrase` | `fpg` | `semantic_check` |

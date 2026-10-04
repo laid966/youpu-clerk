@@ -33,7 +33,7 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Callable, Mapping, Sequence
 
 from audit.artifact import (
@@ -225,8 +225,40 @@ class InjectionContext:
     judged: JudgedReport
     metrics: Mapping[str, Metric]
     known_cites: frozenset[str]
-    rng: random.Random
+    seed: int
     counter: list[int]
+    _streams: dict[str, random.Random] = field(default_factory=dict, repr=False)
+    _kind: str = field(default="", repr=False)
+
+    def with_kind(self, kind: str) -> "InjectionContext":
+        """切换当前算子。**每个算子有自己的随机流。**"""
+        self._kind = kind
+        return self
+
+    @property
+    def rng(self) -> random.Random:
+        """当前算子自己的随机流。
+
+        ⚠️ **为什么不能所有算子共用一条流** —— 这是一个真实缺陷：
+
+        原先全部算子共享 `random.Random(seed + 131)`，而 `random.choice`
+        消耗的随机字数量**取决于列表长度**。于是"给注入句表加一句"这种
+        纯内容改动，会把整条随机流往后推：
+        实测让基准里带**合法变体**的样本从 **19 份掉到 14 份**——
+        误报率的真正考验被悄悄削弱，而所有既有指标看起来毫无变化。
+
+        **基准的构成不能因为无关的内容改动而漂移**，否则你分不清
+        "数字变了"是因为你的改动，还是因为题目换了。
+
+        现在流按 `(seed, 报告编号, 算子名)` 派生：改一个算子的内容，
+        不会再推动别的算子，也不会推动别的样本。
+        """
+        key = self._kind or "misc"
+        if key not in self._streams:
+            self._streams[key] = random.Random(
+                f"{self.seed}:{self.judged.report.report_id}:{key}"
+            )
+        return self._streams[key]
 
     def next_id(self) -> str:
         self.counter[0] += 1
@@ -699,11 +731,12 @@ def _inject_one(
     if not pool:
         return None
 
-    ctx.rng.shuffle(pool)  # 先打乱，再按优先级稳定排序：同优先级等于随机挑且可复现
+    # 选池的洗牌用一条**独立**的流：它不该受任何算子内部抽签次数的影响
+    ctx.with_kind("_pool").rng.shuffle(pool)  # 先打乱，再按优先级稳定排序
     pool.sort(key=lambda kind: -_priority(kind, quota, opportunities))
 
     for kind in pool:
-        outcome = _OPERATORS[kind](artifact, ctx)
+        outcome = _OPERATORS[kind](artifact, ctx.with_kind(kind))
         if outcome is None:  # pragma: no cover — _candidate_kinds 已探测过
             continue
         new_artifact, defect = outcome
@@ -718,14 +751,14 @@ def inject_defects(
 ) -> tuple[Artifact, list[Defect]]:
     """简单版：随机挑类型注入最多 count 条（不做配额均衡，主要用于测试）。"""
     kinds = list(DEFECT_KINDS)
-    ctx.rng.shuffle(kinds)
+    ctx.with_kind("_pool").rng.shuffle(kinds)
 
     defects: list[Defect] = []
     current = artifact
     for kind in kinds:
         if len(defects) >= count:
             break
-        outcome = _OPERATORS[kind](current, ctx)
+        outcome = _OPERATORS[kind](current, ctx.with_kind(kind))
         if outcome is None:
             continue
         current, defect = outcome
@@ -751,7 +784,7 @@ def _applicability_matrix(
             judged=judged,
             metrics=metrics_by_code,
             known_cites=known,
-            rng=rng,
+            seed=seed,
             counter=[0],
         )
         matrix.append(
@@ -839,7 +872,7 @@ def build_injected_dataset(
             judged=judged,
             metrics=metrics_by_code,
             known_cites=known,
-            rng=rng,
+            seed=seed,
             counter=counter,
         )
 
@@ -860,9 +893,11 @@ def build_injected_dataset(
             quota[defect.kind] -= 1
 
         variation: str | None = None
-        if not defects and rng.random() < HARD_NEGATIVE_SHARE:
+        # 合法变体也用**该样本自己**的流：样本之间、算子之间都不互相推动
+        case_rng = random.Random(f"{seed}:{judged.report.report_id}:variation")
+        if not defects and case_rng.random() < HARD_NEGATIVE_SHARE:
             # 干净样本也分两种：原封不动的，和施加了合法变体的（后者才是误报率的真正考验）
-            current, variation = apply_legitimate_variation(current, rng)
+            current, variation = apply_legitimate_variation(current, case_rng)
 
         cases.append(
             InjectedCase(
