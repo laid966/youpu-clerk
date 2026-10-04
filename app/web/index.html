@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>auditkit · 判定类 AI 输出的差分审计器</title>
+<style>
+  :root { --bg:#0f1216; --panel:#171c22; --line:#252d36; --fg:#e6edf3; --muted:#8b98a5;
+          --ok:#3fb950; --bad:#f85149; --warn:#d29922; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex;
+           justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0; font-weight:600; }
+  h1 span { color:var(--muted); font-weight:400; font-size:13px; margin-left:8px; }
+  .meta { color:var(--muted); font-size:12px; }
+  main { display:grid; grid-template-columns:260px 1fr 1fr; gap:14px; padding:14px; align-items:start; }
+  @media (max-width:1100px) { main { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .panel h2 { font-size:13px; margin:0 0 10px; color:var(--muted); font-weight:600;
+              text-transform:uppercase; letter-spacing:.04em; }
+  #cases { max-height:70vh; overflow:auto; }
+  .case { padding:6px 8px; border-radius:6px; cursor:pointer; font-size:12.5px;
+          display:flex; justify-content:space-between; gap:6px; }
+  .case:hover { background:#1e252d; }
+  .case.active { background:#1f6feb33; outline:1px solid var(--accent); }
+  .case .tag { color:var(--muted); font-size:11px; }
+  button { background:#21262d; color:var(--fg); border:1px solid var(--line);
+           padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
+  button:hover { border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; }
+  .sev-critical { color:var(--bad); font-weight:600; }
+  .sev-marked { color:var(--warn); }
+  .log { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--muted);
+         max-height:180px; overflow:auto; white-space:pre-wrap; }
+  .finding { border-left:3px solid var(--accent); padding:6px 10px; margin:8px 0;
+             background:#0d1117; border-radius:0 6px 6px 0; }
+  .finding .head { font-size:12.5px; }
+  .finding .ev { color:var(--muted); font-size:12px; margin-top:4px; }
+  .pill { display:inline-block; padding:1px 6px; border-radius:10px; font-size:11px;
+          border:1px solid var(--line); color:var(--muted); margin-left:6px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .empty { color:var(--muted); font-size:12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>auditkit<span>判定类 AI 输出的差分审计器</span></h1>
+  <div class="meta" id="health">加载中…</div>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>演示样本</h2>
+    <div class="row">
+      <label class="meta"><input type="checkbox" id="dryRun" /> 不调模型（免费用）</label>
+    </div>
+    <div id="cases"></div>
+  </section>
+
+  <section class="panel">
+    <h2>被审计的产物</h2>
+    <div id="artifact" class="empty">从左边选一个样本</div>
+  </section>
+
+  <section class="panel">
+    <h2>审计结果</h2>
+    <div class="row">
+      <button id="run" disabled>开始审计</button>
+      <button id="truth" disabled>揭示标准答案</button>
+    </div>
+    <div class="log" id="log"></div>
+    <div id="findings"></div>
+    <div id="truthBox"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let current = null;
+let auditFindings = [];
+
+const sevClass = (s) => s === 'critical' ? 'sev-critical' : (s === 'marked' ? 'sev-marked' : '');
+
+async function loadHealth() {
+  const r = await fetch('/api/health');
+  const h = await r.json();
+  $('health').textContent = `提示词 ${h.prompt_version} · ${h.policy}` +
+    (h.has_api_key ? '' : ' · ⚠️ 未配置 API key（将自动走免调模型模式）');
+}
+
+async function loadCases() {
+  const r = await fetch('/api/cases');
+  const data = await r.json();
+  $('cases').innerHTML = '';
+  data.cases.forEach((c) => {
+    const div = document.createElement('div');
+    div.className = 'case';
+    div.dataset.id = c.case_id;
+    const label = c.clean ? (c.variation && c.variation !== 'none' ? '干净·变体' : '干净') : '已注入';
+    div.innerHTML = `<span>${c.case_id}</span><span class="tag">${c.profile} · ${label}</span>`;
+    div.onclick = () => selectCase(c.case_id, div);
+    $('cases').appendChild(div);
+  });
+}
+
+async function selectCase(caseId, el) {
+  document.querySelectorAll('.case').forEach((n) => n.classList.remove('active'));
+  el.classList.add('active');
+  current = caseId;
+  $('run').disabled = false;
+  $('truth').disabled = false;
+  $('log').textContent = '';
+  $('findings').innerHTML = '';
+  $('truthBox').innerHTML = '';
+  auditFindings = [];
+
+  const r = await fetch(`/api/cases/${caseId}`);
+  const data = await r.json();
+  renderArtifact(data.artifact);
+}
+
+function renderArtifact(a) {
+  const rows = a.items.map((i) => `
+    <tr>
+      <td>${i.name}</td>
+      <td>${i.value}</td>
+      <td>${i.unit}</td>
+      <td>${i.reference_text}</td>
+      <td class="${sevClass(i.severity)}">${i.severity}</td>
+    </tr>`).join('');
+  $('artifact').innerHTML = `
+    <div class="meta" style="margin-bottom:8px">
+      ${a.report_id} · ${a.age} 岁 / ${a.sex} · 异常 ${a.abnormal_count} 项 ·
+      最严重 <b>${a.worst_severity}</b> · 紧急 ${a.urgent}
+    </div>
+    <table><thead><tr><th>指标</th><th>数值</th><th>单位</th><th>参考区间</th><th>判定</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <div class="meta" style="margin-top:8px">${a.summary_text}</div>`;
+}
+
+$('run').onclick = () => {
+  if (!current) return;
+  $('log').textContent = '';
+  $('findings').innerHTML = '';
+  auditFindings = [];
+  $('run').disabled = true;
+  const dry = $('dryRun').checked ? '?dry_run=true' : '';
+  const es = new EventSource(`/api/audit/${current}/stream${dry}`);
+  es.addEventListener('node', (e) => {
+    const d = JSON.parse(e.data);
+    $('log').textContent += `▸ ${d.node} — ${d.summary}\n`;
+    $('log').scrollTop = $('log').scrollHeight;
+  });
+  es.addEventListener('done', (e) => {
+    const d = JSON.parse(e.data);
+    auditFindings = d.audit.findings || [];
+    renderAudit(d.audit);
+    $('run').disabled = false;
+    es.close();
+  });
+  es.addEventListener('error', (e) => {
+    try { $('log').textContent += `✗ ${JSON.parse(e.data).message}\n`; }
+    catch { $('log').textContent += '✗ 连接中断\n'; }
+    $('run').disabled = false;
+    es.close();
+  });
+};
+
+function renderAudit(audit) {
+  const counts = audit.counts || {};
+  const head = `<div class="meta" style="margin-top:8px">
+      报出 ${counts.accepted} 条（确定性 ${counts.deterministic} · 语义 ${counts.semantic}）·
+      反思否掉 ${counts.rejected} 条 · 模型调用 ${audit.model_calls} 次 ·
+      ${audit.escalated ? '<b class="bad">需人工复核</b>' : '<b class="ok">可自动放行</b>'}
+    </div>`;
+  if (!auditFindings.length) {
+    $('findings').innerHTML = head + '<div class="empty">没有发现问题。</div>';
+    return;
+  }
+  const items = auditFindings.map((f) => `
+    <div class="finding">
+      <div class="head"><b>${f.target}</b> · ${f.message}
+        <span class="pill">${f.detector}</span>
+        <span class="pill">${f.decided_by}</span>
+        ${f.category ? `<span class="pill">${f.category}</span>` : ''}
+      </div>
+      <div class="ev">依据：${(f.evidence || '').slice(0, 160)}</div>
+    </div>`).join('');
+  $('findings').innerHTML = head + items;
+}
+
+$('truth').onclick = async () => {
+  if (!current) return;
+  const r = await fetch(`/api/cases/${current}/truth`);
+  const t = await r.json();
+
+  // 把审计结果与标准答案并排对照：这是整个演示最有说服力的地方
+  const used = new Set();
+  const rows = t.defects.map((d) => {
+    const hit = auditFindings.find((f) => f.detector === d.expected_detector && f.target === d.target);
+    if (hit) used.add(hit);
+    return `<tr>
+      <td>${d.defect_id}</td>
+      <td>${d.label}</td>
+      <td><code>${d.target}</code></td>
+      <td class="${hit ? 'ok' : 'bad'}">${hit ? '已抓到' : '漏掉'}</td>
+    </tr>`;
+  }).join('');
+
+  const fp = auditFindings.filter((f) => !used.has(f)).length;
+  $('truthBox').innerHTML = `
+    <h2 style="margin-top:14px">对照标准答案</h2>
+    <div class="meta">${t.clean ? '这个样本是<b>干净</b>的（没有注入缺陷）' : `注入了 ${t.defects.length} 条缺陷`}
+      ${t.variation && t.variation !== 'none' ? ` · 带合法变体 <code>${t.variation}</code>` : ''}</div>
+    ${t.defects.length ? `<table style="margin-top:8px"><thead><tr>
+        <th>编号</th><th>类型</th><th>指标</th><th>结果</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+    <div class="meta" style="margin-top:8px">
+      误报：<b class="${fp ? 'bad' : 'ok'}">${fp}</b> 条（报出来但不是注入的缺陷）
+    </div>`;
+};
+
+loadHealth();
+loadCases();
+</script>
+</body>
+</html>

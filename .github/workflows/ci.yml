@@ -1,0 +1,72 @@
+name: CI
+
+# 这个 CI 有一个刻意的设计：**它完全不需要 API key，因此不花一分钱。**
+#
+# 做法是让所有评测走"确定性 + 假模型"的路径：
+#   - 单元测试全部用 FakeJudge
+#   - 审计评测的确定性层本来就不调模型
+#   - 检索评测是纯本地 BM25
+# 只有"语义检查在真实模型上的表现"需要 key，那一条留给人手动跑。
+#
+# 这不只是省钱：**不需要密钥的 CI 才能被任何人 fork 之后立刻跑通**，
+# 而这决定了别人愿不愿意用你的项目。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: 跑测试
+        run: python -m pytest -q
+
+  offline-metrics:
+    name: 离线指标（不花钱）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 规则自检（10 个判定域）
+        run: python -m engine check --all --samples 500
+
+      - name: 确定性检查器评测
+        run: python -m audit eval --count 100
+
+      - name: 检索基线评测
+        run: python -m rag eval
+
+      - name: 变异测试（测试到底有没有用）
+        run: python -m agent mutate
+
+      - name: 上传报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: reports/
+
+  # 提示：语义检查在真实模型上的评测（`python -m agent eval-semantic`）需要
+  # DEEPSEEK_API_KEY，因此**刻意不在 CI 里跑**。它由人手动执行，
+  # 结果记在 reports/semantic-report.md 与历史提交里。

@@ -177,6 +177,51 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mutate(args: argparse.Namespace) -> int:
+    """变异测试：故意改坏流水线，看测试套件抓不抓得住。"""
+    from agent.mutation import MutationBaselineError, run_mutation
+    from agent.mutants import MUTANTS
+
+    selected = MUTANTS
+    if args.id:
+        selected = tuple(item for item in MUTANTS if item.mutant_id == args.id)
+        if not selected:
+            print(f"[x] 没有这个变异体：{args.id}")
+            return 2
+
+    print(f"开始变异测试（{args.id or '全部 ' + str(len(selected)) + ' 个'}）——在临时副本里改，工作区只读")
+    print()
+    try:
+        report = run_mutation(mutants=selected, verbose=True)
+    except MutationBaselineError as exc:
+        print(f"[x] {exc}")
+        return 2
+
+    out = Path(args.report)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(report.to_markdown(), encoding="utf-8")
+
+    print()
+    print(f"  有效变异体        {len(report.valid)} 个")
+    print(f"  必须杀死          {len(report.must_kill)} 个")
+    print(f"  杀死              {len(report.killed)} 个")
+    print(f"  真实盲区          {len(report.real_gaps)} 个  ← 必须杀死却活下来的")
+    print(f"  允许存活（旋钮）  {len(report.allowed_survivors)} 个")
+    print(f"  变异得分          {report.score:.1%}   （只统计必须杀死的那批）")
+    print(f"  预期杀手命中率    {report.expected_catch_rate:.1%}")
+    print()
+    if report.real_gaps:
+        print("真实测试盲区（改坏了测试也没反应）：")
+        for item in report.real_gaps:
+            print(f"  {item.mutant.mutant_id}  {item.mutant.description}")
+            print(f"      目标：{item.mutant.target}")
+            print(f"      本该由：{item.mutant.expected_killer}")
+        print()
+    print(f"  报告 -> {out}")
+    # 只有**真实盲区**才让命令失败。"允许存活的旋钮"存活是设计意图，不算失败。
+    return 1 if report.real_gaps else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m agent", description="审计 agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -223,6 +268,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--report", default=str(ROOT / "reports" / "audit-report.md")
     )
     audit_cmd.set_defaults(func=cmd_audit)
+
+    mutate = subparsers.add_parser(
+        "mutate", help="变异测试：故意改坏流水线，看测试套件抓不抓得住"
+    )
+    mutate.add_argument("--id", help="只跑指定变异体（如 M03）")
+    mutate.add_argument("--report", default=str(ROOT / "reports" / "mutation-report.md"))
+    mutate.set_defaults(func=cmd_mutate)
 
     return parser
 
