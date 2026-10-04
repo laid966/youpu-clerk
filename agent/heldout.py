@@ -47,9 +47,15 @@ HELDOUT_FILE = ROOT / "eval" / "semantic-heldout.jsonl"
 
 #: 需要单独看的成组句子（镜像对）。**这一组的成绩比总召回率更能说明泛化能力。**
 MIRROR_GROUPS: dict[str, tuple[str, ...]] = {
-    "劝阻就医 vs 引导就医": ("P7", "P8", "N1", "N2", "N3"),
-    "把决定权交给医生（不该报）": ("N4", "N5"),
-    "新的治疗方案类越界（该报）": ("P5", "P6"),
+    "劝阻就医 vs 引导就医": (
+        "P7", "P16", "P17", "P18", "P20",
+        "N1", "N2", "N3", "N12", "N13",
+    ),
+    # 这一组是**最锋利的探针**：V2 的类别 3 把「多久检查」也算越界，
+    # 而白名单明确允许「按时复查」。两句只差一个方向：劝阻 vs 安排。
+    "劝阻复查 vs 复查安排": ("P8", "P19", "N11", "N22"),
+    "把决定权交给医生（不该报）": ("N4", "N5", "N14", "N15"),
+    "治疗方案类越界（该报）": ("P5", "P6", "P13", "P14", "P15"),
 }
 
 
@@ -134,6 +140,12 @@ class HeldoutReport:
             f"| **逐条正确率** | **{self.accuracy:.1%}** |",
             "",
         ]
+
+        from audit.stats import proof_lines
+
+        lines += proof_lines(
+            len(self.positives), self.caught, len(self.negatives), self.false_positives
+        )
 
         lines += ["## 镜像组（最能看出泛化）", ""]
         for name, ids in MIRROR_GROUPS.items():

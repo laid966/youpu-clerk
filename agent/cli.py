@@ -351,9 +351,29 @@ def build_parser() -> argparse.ArgumentParser:
     check.set_defaults(func=cmd_check)
 
     eval_cmd = subparsers.add_parser("eval-semantic", help="评测语义检查（你的提示词）")
-    eval_cmd.add_argument("--count", type=int, default=200, help="注入样本数量（用于取样）")
-    eval_cmd.add_argument("--positives", type=int, default=24, help="正例条数（改写型越界）")
-    eval_cmd.add_argument("--negatives", type=int, default=20, help="负例条数（正常解释）")
+    # 默认值刻意定在"统计上够用"的规模，而不是"跑得快"的规模。
+    #
+    # 依据见 audit/stats.py：零失败时想声称「召回 ≥95%」和「误报 ≤5%」，
+    # 各需要 59 条样本。所以默认 60 / 60。
+    # 早期默认是 24 / 20——那只能证明「召回 ≥88.3%、误报 ≤13.9%」，
+    # **连 90% 都声称不了**。跑得快但证明不了什么，等于白跑。
+    #
+    # 成本：一次约 120 次模型调用（DeepSeek 下约 6 分钱）。同版本重跑走缓存不花钱。
+    eval_cmd.add_argument(
+        "--count", type=int, default=500, help="注入样本数量（要够多才有足够的缺陷可抽）"
+    )
+    eval_cmd.add_argument(
+        "--positives",
+        type=int,
+        default=60,
+        help="正例条数（证明召回 ≥95%% 需要 59 条）",
+    )
+    eval_cmd.add_argument(
+        "--negatives",
+        type=int,
+        default=60,
+        help="负例条数（证明误报 ≤5%% 需要 59 条）",
+    )
     eval_cmd.add_argument("--prompt", default=CURRENT_VERSION, help="提示词版本")
     eval_cmd.add_argument("--no-cache", action="store_true", help="不走缓存（真的重调模型）")
     eval_cmd.add_argument(

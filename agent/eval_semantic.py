@@ -89,6 +89,13 @@ class SemanticEvalReport:
             "",
         ]
 
+        # 置信区间紧跟在总览后面：**它比百分比更重要**，因为它说明百分比能证明什么。
+        from audit.stats import proof_lines
+
+        lines += proof_lines(
+            self.positives, self.caught, self.negatives, self.false_positives
+        )
+
         lines.append("## 漏掉的越界（这些是你可以改进的地方）")
         lines.append("")
         if self.missed:
@@ -122,8 +129,8 @@ class SemanticEvalReport:
 
 def build_semantic_cases(
     cases: Sequence[InjectedCase],
-    positives: int = 24,
-    negatives: int = 20,
+    positives: int = 60,
+    negatives: int = 60,
     seed: int = 20261003,
     hard_negative_share: float = 0.6,
 ) -> tuple[SemanticCase, ...]:
