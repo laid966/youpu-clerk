@@ -133,12 +133,32 @@ class EvaluationReport:
         return "\n".join(lines)
 
 
-def _matches(finding: Finding, defect: Defect) -> bool:
-    """一条发现是否算"抓到了"这条缺陷：必须是**同一检查器 + 同一指标**。
+#: 允许的"替代检查器"：**同一类缺陷被更强的层先抓到，算抓到，不算误报。**
+#:
+#: 目前只有一条：改写型安全越界（`safety_paraphrase`）在基准里的预期检查器是
+#: 语义检查（`semantic_check`）。但如果你在护栏（`safety_terms`）里加了足够强的词，
+#: 它就会**先**抓到——那是**更好**而不是更差：更便宜、更确定、可复现。
+#:
+#: ⚠️ 真实陷阱：没有这条例外时，你往 `agent/guardrails.py` 加一条规则会让
+#: 端到端审计**多出一批"误报"**（因为发现被记在 `safety_terms` 名下，
+#: 而缺陷期望的是 `semantic_check`），于是"改进护栏"看起来像"把系统改坏了"。
+#: 这是评测口径的漏洞，不是护栏的问题。
+ALTERNATE_DETECTORS: Mapping[str, frozenset[str]] = {
+    "safety_paraphrase": frozenset({"safety_terms"}),
+}
 
-    不能只看指标相同——那样一个乱报的检查器也能蹭到召回率。
+
+def _matches(finding: Finding, defect: Defect) -> bool:
+    """一条发现是否算"抓到了"这条缺陷：必须是**同一指标**，且检查器**对得上**。
+
+    检查器默认必须完全一致——不能只看指标相同，那样一个乱报的检查器也能蹭到召回率。
+    唯一的例外写在 `ALTERNATE_DETECTORS` 里（更便宜的一层先抓到，算抓到）。
     """
-    return finding.detector == defect.expected_detector and finding.target == defect.target
+    if finding.target != defect.target:
+        return False
+    if finding.detector == defect.expected_detector:
+        return True
+    return finding.detector in ALTERNATE_DETECTORS.get(defect.kind, frozenset())
 
 
 def evaluate(

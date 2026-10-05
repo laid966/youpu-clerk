@@ -31,10 +31,14 @@ from audit.inject import Defect
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _defect(target: str = "alt", detector: str = "safety_terms") -> Defect:
+def _defect(
+    target: str = "alt",
+    detector: str = "safety_terms",
+    kind: str = "safety_violation",
+) -> Defect:
     return Defect(
         defect_id="D-TEST",
-        kind="safety_violation",
+        kind=kind,
         target=target,
         location="items[].explanation",
         description="测试用",
@@ -371,3 +375,126 @@ def test_content_edits_do_not_change_the_benchmark_composition(monkeypatch):
         "加了一句注入句之后基准构成变了——说明随机流又被耦合了。\n"
         "改内容不该改题目：否则指标一变，你分不清是改动导致的还是题目换了。"
     )
+
+
+# --------------------------------------------------------------------------- #
+# 9. 护栏规则不许静默失效
+# --------------------------------------------------------------------------- #
+
+
+def test_guardrail_rule_with_empty_patterns_is_refused():
+    """**空规则必须在构造时就报错。**
+
+    真实事故：作者用「从 SAFETY_TERMS 里筛新词」的写法加规则，筛出来是空元组。
+    规则看着加上了，实际永远匹配不到——改完跑命令"没有变化"，查了半天查不出来。
+
+    静默失效比报错贵得多，所以这里盯着它：空 patterns 直接抛。
+    """
+    from agent.guardrails import GuardrailRule
+
+    with pytest.raises(ValueError, match="patterns 是空的"):
+        GuardrailRule(
+            name="G-EMPTY",
+            category="conclusion",
+            patterns=(),
+            note="只有说明没有词——永远匹配不到",
+        )
+
+
+def test_guardrail_rule_without_note_is_refused():
+    from agent.guardrails import GuardrailRule
+
+    with pytest.raises(ValueError, match="必须写 note"):
+        GuardrailRule(name="G-NONOTE", category="other", patterns=("某个词",), note="   ")
+
+
+def test_guardrail_rule_with_duplicate_patterns_is_refused():
+    from agent.guardrails import GuardrailRule
+
+    with pytest.raises(ValueError, match="重复"):
+        GuardrailRule(
+            name="G-DUP",
+            category="other",
+            patterns=("同一个词", "同一个词"),
+            note="重复没有意义，通常是复制粘贴出的错",
+        )
+
+
+def test_extra_patterns_slot_is_actually_wired():
+    """`EXTRA_PATTERNS` 必须真的被拼进 `GUARDRAIL_RULES`。
+
+    文件开头写着"在 EXTRA_PATTERNS 里加规则"，但**第一版文件里根本没有这个变量**——
+    文档和代码不一致，作者照着说明填也填不进去。这条测试盯着它们保持一致。
+    """
+    from agent.guardrails import _BASE_RULES, EXTRA_PATTERNS, GUARDRAIL_RULES
+
+    assert GUARDRAIL_RULES == _BASE_RULES + EXTRA_PATTERNS
+    for rule in EXTRA_PATTERNS:
+        assert rule in GUARDRAIL_RULES, f"{rule.name} 没被拼进规则表"
+
+
+def test_author_rules_are_not_inert():
+    """作者加的每条**字面**规则都必须真的能匹配到东西。
+
+    做法：把这条规则自己的词拼成一段文本喂给 `apply_guardrails`——
+    字面规则必须命中。命不中说明这条规则是死的（词写错了，或者被筛空了）。
+    """
+    from agent.guardrails import EXTRA_PATTERNS, apply_guardrails
+
+    checked = 0
+    for rule in EXTRA_PATTERNS:
+        if rule.is_regex:
+            continue  # 正则没法这样反问，靠 check 命令人工验证
+        probe = "、".join(rule.patterns)
+        hits = apply_guardrails(probe)
+        assert hits, f"规则 {rule.name} 是死的：用它自己的词组成的文本一条都没命中"
+        assert any(hit.rule == rule.name for hit in hits), f"{rule.name} 没被触发"
+        checked += 1
+    assert checked >= 1, "至少应当有一条字面规则被检查到"
+
+
+def test_check_command_can_report_which_pattern_matched():
+    """`python -m agent check` 必须能说清**哪条规则、哪个词**命中。
+
+    没有这个信息，作者无法验证"我加的规则生效没有"——只能靠感觉。
+    """
+    from agent.guardrails import apply_guardrails
+
+    hits = apply_guardrails("目前已经属于糖尿病范围了")
+
+    assert hits, "这句应当命中护栏"
+    assert hits[0].rule == "G-CONCLUSION-KEYWORD"
+    assert hits[0].pattern == "已经属于"
+    assert hits[0].category == "conclusion"
+    assert hits[0].to_dict()["pattern"] == "已经属于"
+
+
+# --------------------------------------------------------------------------- #
+# 10. 更便宜的一层先抓到 → 算抓到，不算误报
+# --------------------------------------------------------------------------- #
+
+
+def test_guardrail_catching_a_paraphrase_counts_as_caught():
+    """真实陷阱：往护栏加规则会让端到端审计**多出一批"误报"**。
+
+    因为改写型越界（`safety_paraphrase`）的预期检查器是语义检查，
+    而护栏抓到它时会被记在 `safety_terms` 名下——不放宽匹配的话，
+    **"改进护栏"看起来像"把系统改坏了"**。
+
+    这是评测口径的漏洞，不是护栏的问题。所以允许一条有据可查的替代关系。
+    """
+    from audit.evaluate import ALTERNATE_DETECTORS
+
+    paraphrase = _defect(detector="semantic_check", kind="safety_paraphrase")
+    by_guardrail = _finding(detector="safety_terms")
+
+    assert _matches(by_guardrail, paraphrase) is True, "护栏先抓到应当算抓到"
+    assert ALTERNATE_DETECTORS["safety_paraphrase"] == frozenset({"safety_terms"})
+
+
+def test_alternates_do_not_leak_to_other_defect_kinds():
+    """替代关系只对声明过的缺陷类型生效，不能变成"随便哪个检查器都算抓到"。"""
+    value_defect = _defect(detector="value_consistency", kind="value_mismatch")
+    safety_finding = _finding(detector="safety_terms")
+
+    assert _matches(safety_finding, value_defect) is False

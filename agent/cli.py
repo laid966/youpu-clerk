@@ -34,6 +34,8 @@ def cmd_prompts(args: argparse.Namespace) -> int:
 
 
 def cmd_check(args: argparse.Namespace) -> int:
+    from agent.guardrails import apply_guardrails
+
     judge = build_judge(use_cache=not args.no_cache)
     prompt = prompt_for(args.prompt)
     outcome = check_text(args.text, args.target, prompt, judge)
@@ -41,14 +43,26 @@ def cmd_check(args: argparse.Namespace) -> int:
     print(f"提示词版本：{args.prompt}")
     print(f"文本：{args.text}")
     print()
+
+    # **先把护栏结果单独打出来**：这是验证"我加的规则到底生效没有"的唯一依据。
+    # 没有这一段，你只能看到"由 guardrail 判出"，却不知道是哪条规则、哪个词命中的。
+    hits = apply_guardrails(args.text)
+    if hits:
+        print("护栏命中（命中即判越界，不必问模型）：")
+        for hit in hits:
+            print(f"  · 规则 {hit.rule}（类别 {hit.category}） 命中词/正则：{hit.pattern!r}")
+    else:
+        print("护栏：一个词都没命中 → 这一句会交给模型判（改写型越界本来就该这样）")
+    print()
+
     if outcome.error:
         print(f"[错误] {outcome.error}")
         print("注意：错误**不等于**没有越界，必须单独处理。")
         return 2
     if outcome.finding is None:
-        print("判定：没有越界")
+        print("最终判定：没有越界")
     else:
-        print(f"判定：越界（{outcome.finding.category}，由 {outcome.finding.decided_by} 判出）")
+        print(f"最终判定：越界（{outcome.finding.category}，由 {outcome.finding.decided_by} 判出）")
         print(f"证据：{outcome.finding.evidence}")
     return 0
 

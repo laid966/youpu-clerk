@@ -207,11 +207,16 @@ MUTANTS: tuple[Mutant, ...] = (
         target="audit/evaluate.py",
         description="放宽评测的匹配规则：只看指标名，不看检查器",
         old_snippet=(
-            "    return finding.detector == defect.expected_detector and finding.target == defect.target"
+            "    if finding.detector == defect.expected_detector:\n"
+            "        return True\n"
+            "    return finding.detector in ALTERNATE_DETECTORS.get(defect.kind, frozenset())"
         ),
         new_snippet="    return finding.target == defect.target",
         expected_killer="tests/test_invariants.py::test_evaluation_matching_requires_same_detector",
-        invariant="匹配必须同时看检查器与指标，否则乱报的检查器也能蹭到召回率",
+        invariant=(
+            "匹配必须同时看检查器与指标（替代关系只限声明过的那一条），"
+            "否则乱报的检查器也能蹭到召回率"
+        ),
     ),
     Mutant(
         mutant_id="M17",
