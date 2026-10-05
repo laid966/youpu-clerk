@@ -350,6 +350,95 @@ def _registry_versions() -> tuple[str, ...]:
     return tuple(_REGISTRY)
 
 
+def cmd_guardrails(args: argparse.Namespace) -> int:
+    """只看护栏：列出规则 + 自检每条规则有没有失效。
+
+    **不调模型、不花钱。** 这是验证"我加的规则生效没有"最快的方式：
+
+    - 不带参数：列出全部规则，并**逐条自检**（把它自己的词喂回去，看命不命中）
+    - `--text "一句话"`：把一段文本跑一遍，看命中了哪条规则、哪个词
+    - `--rule <名字>`：只看某一条规则的自检结果
+
+    ⚠️ 自检只能验证**字面规则**（`is_regex=False`）。正则规则没法这样反问，
+    要用 `--text` 手写一句去试。
+    """
+    from agent.guardrails import EXTRA_PATTERNS, GuardrailRule, apply_guardrails
+
+    if args.text:
+        hits = apply_guardrails(args.text)
+        print(f"文本：{args.text}")
+        print()
+        if not hits:
+            print("护栏：一个词都没命中 → 这段文本会交给模型判（改写型越界本来就该这样）")
+            print()
+            print("如果这句该被护栏抓到，检查两件事：")
+            print("  1. 词写对了吗（用 python -m agent guardrails 看规则里到底有什么词）")
+            print("  2. 规则是不是空的（空规则会在导入时直接报错，不会静默）")
+            return 0
+        print("护栏命中（命中即判越界，不必问模型）：")
+        for hit in hits:
+            print(f"  · 规则 {hit.rule}（类别 {hit.category}） 命中词/正则：{hit.pattern!r}")
+        return 0
+
+    rules = [
+        rule
+        for rule in _all_guardrail_rules()
+        if not args.rule or rule.name == args.rule
+    ]
+    if not rules:
+        print(f"[x] 没有这条规则：{args.rule}")
+        return 2
+
+    extra = set(id(rule) for rule in EXTRA_PATTERNS)
+    print(f"共 {len(_all_guardrail_rules())} 条护栏规则（其中你的扩展位 {len(EXTRA_PATTERNS)} 条）")
+    print()
+
+    dead: list[str] = []
+    for rule in rules:
+        origin = "★你的" if id(rule) in extra else "  基础"
+        regex_tag = "（正则）" if rule.is_regex else ""
+        print(f"{origin}  {rule.name}")
+        print(f"        类别：{rule.category}    模式：{len(rule.patterns)} 个{regex_tag}")
+        print(f"        说明：{rule.note}")
+        print(f"        词表：{list(rule.patterns)}")
+
+        if rule.is_regex:
+            print("        自检：⚠️ 正则规则无法自动反问，请用 --text 手写一句验证")
+        else:
+            probe = "、".join(rule.patterns)
+            hits = {
+                hit.pattern
+                for hit in apply_guardrails(probe)
+                if hit.rule == rule.name
+            }
+            missing = [p for p in rule.patterns if p not in hits]
+            if hits and not missing:
+                print(f"        自检：✅ 全部 {len(rule.patterns)} 个词都能命中")
+            elif hits:
+                print(f"        自检：⚠️ 只有 {len(hits)}/{len(rule.patterns)} 命中，未命中：{missing}")
+            else:
+                print("        自检：❌ 这条规则是死的（一个词都匹配不到）")
+                dead.append(rule.name)
+        print()
+
+    if dead:
+        print(f"❌ 有 {len(dead)} 条死规则：{dead}")
+        print("   死规则不会报错，但永远不起作用——请检查模式里的词是否写对。")
+        return 1
+
+    print("✅ 所有字面规则都能命中。")
+    print()
+    print("下一步：用一句真实的话验证 —— ")
+    print('  .\\.venv\\Scripts\\python.exe -m agent guardrails --text "你的一句话"')
+    return 0
+
+
+def _all_guardrail_rules() -> tuple:
+    from agent.guardrails import GUARDRAIL_RULES
+
+    return GUARDRAIL_RULES
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m agent", description="审计 agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -363,6 +452,16 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--prompt", default=CURRENT_VERSION)
     check.add_argument("--no-cache", action="store_true")
     check.set_defaults(func=cmd_check)
+
+    guardrails = subparsers.add_parser(
+        "guardrails",
+        help="只看护栏：列规则 + 自检每条规则有没有失效（不调模型、不花钱）",
+    )
+    guardrails.add_argument(
+        "--text", default=None, help="用一句话验证：显示命中了哪条规则、哪个词"
+    )
+    guardrails.add_argument("--rule", default=None, help="只看某一条规则的自检结果")
+    guardrails.set_defaults(func=cmd_guardrails)
 
     eval_cmd = subparsers.add_parser("eval-semantic", help="评测语义检查（你的提示词）")
     # 默认值刻意定在"统计上够用"的规模，而不是"跑得快"的规模。

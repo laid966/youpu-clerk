@@ -481,6 +481,41 @@ def test_check_command_can_report_which_pattern_matched():
     assert hits[0].to_dict()["pattern"] == "已经属于"
 
 
+def test_guardrails_command_lists_and_self_tests(capsys):
+    """`python -m agent guardrails` 是作者验证护栏的主要入口，必须不调模型、能自检。
+
+    它要回答两个问题：**我有哪些规则**、**我的规则有没有失效**。
+    后者尤其重要——死规则不会报错，只是永远不起作用。
+    """
+    from agent.cli import main
+
+    assert main(["guardrails"]) == 0
+    out = capsys.readouterr().out
+    assert "G-CONCLUSION-KEYWORD" in out
+    assert "自检" in out
+    assert "都能命中" in out
+
+
+def test_guardrails_command_text_mode(capsys):
+    from agent.cli import main
+
+    assert main(["guardrails", "--text", "目前已经属于糖尿病范围了"]) == 0
+    out = capsys.readouterr().out
+    assert "已经属于" in out
+    assert "G-CONCLUSION-KEYWORD" in out
+
+    assert main(["guardrails", "--text", "本次结果在参考区间内，建议复查。"]) == 0
+    out = capsys.readouterr().out
+    assert "一个词都没命中" in out
+
+
+def test_guardrails_command_rejects_unknown_rule(capsys):
+    from agent.cli import main
+
+    assert main(["guardrails", "--rule", "不存在的规则"]) == 2
+    assert "没有这条规则" in capsys.readouterr().out
+
+
 # --------------------------------------------------------------------------- #
 # 10. 更便宜的一层先抓到 → 算抓到，不算误报
 # --------------------------------------------------------------------------- #
