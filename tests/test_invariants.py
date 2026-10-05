@@ -201,23 +201,26 @@ def test_at_least_one_knob_is_marked_allowed_to_survive():
 
 
 def test_prompt_categories_match_policy_known_categories():
-    """提示词里声明可输出的类别，必须都在 policy 的 `KNOWN_CATEGORIES` 里。
+    """**所有会产出类别的来源**声明的类别，都必须登记在 policy 的 `KNOWN_CATEGORIES` 里。
 
-    **为什么需要这条测试**：如果提示词引入了新类别，而 `agent/policy.py` 不知道，
+    来源有两个，只查一个是不够的：
+
+    1. 提示词（`agent/prompts.py` 的 JSON 模板里的 `category` 枚举）
+    2. 护栏（`agent/guardrails.py` 每条规则的 `category`）
+
+    **为什么需要这条测试**：如果某个来源引入了新类别，而 `agent/policy.py` 不知道，
     系统不会报错——它会走 fail-safe，把这条结论**升级人工**。
+    结果是：**改提示词/加护栏悄悄改变了"谁需要人工复核"，而没有人发现。**
 
-    结果是：**改提示词悄悄改变了"谁需要人工复核"，而没有人发现。**
+    这个盲区真实发生过：提示词加了 `plan` 类，`KNOWN_CATEGORIES` 里没有它，
+    于是这一类全靠"未知类目"兜底升级人工。**结果是对的，理由是错的**——
+    一旦有人关掉 `escalate_unknown_category`，保护就无声消失。
 
-    这个盲区真实发生过：提示词加了 `relastic_execution` 类，
-    而 `KNOWN_CATEGORIES` 里没有它，于是这一类结论全部靠"未知类目"的兜底升级人工。
-    结果是**对的**（确实该人工看），但**理由是错的**——一旦有人把
-    `escalate_unknown_category` 关掉，或者把类别名改成别的写法，
-    这个保护就会无声消失。
-
-    经验：**跨文件的约定必须有测试守着**，靠注释提醒（"记得在这里补上"）是不可靠的。
+    经验：**跨文件的约定必须有测试守着**，靠注释提醒（"记得在这里补上"）不可靠。
     """
     import re
 
+    from agent.guardrails import GUARDRAIL_RULES
     from agent.policy import KNOWN_CATEGORIES
     from agent.prompts import _REGISTRY
 
@@ -238,11 +241,20 @@ def test_prompt_categories_match_policy_known_categories():
                 f"但 KNOWN_CATEGORIES 里没有 {sorted(unknown)}"
             )
 
+    for rule in GUARDRAIL_RULES:
+        if rule.category not in known:
+            problems.append(
+                f"护栏规则 {rule.name} 用了类别 {rule.category!r}，"
+                f"但 KNOWN_CATEGORIES 里没有它"
+            )
+
     assert not problems, (
         "\n".join(problems)
-        + "\n\n改法二选一（都是改一个词）：\n"
-        "  A. 把新类别加进 agent/policy.py 的 KNOWN_CATEGORIES\n"
-        "  B. 在提示词里改用已有类别名（diagnosis / treatment / dosage / guidance / prognosis）"
+        + "\n\n改法（**两处必须一起改**，只改一处会丢掉人工升级保护）：\n"
+        "  1. 把新类别加进 agent/policy.py 的 KNOWN_CATEGORIES\n"
+        "  2. 并且加进 policy 的 escalate_categories（如果它属于"
+        "\"漏一条代价很大\"的那类）\n"
+        "或者：在提示词/护栏里改用已有类别名"
     )
 
 
@@ -498,3 +510,58 @@ def test_alternates_do_not_leak_to_other_defect_kinds():
     safety_finding = _finding(detector="safety_terms")
 
     assert _matches(safety_finding, value_defect) is False
+
+
+# --------------------------------------------------------------------------- #
+# 11. 「登记了类别」≠「这类结论会升级人工」
+# --------------------------------------------------------------------------- #
+
+#: 已知但**不升级人工**的类别。**每一个都必须是有意决定的，不能是漏登记。**
+#:
+#: ⚠️ 为什么要有这张表：`KNOWN_CATEGORIES` 里的人会以为"登记了就都处理了"，
+#: 但真正决定"谁需要人工复核"的是 `escalate_categories`。
+#: 两者之间**没有任何报错**——少写一个词，那一类就静默放行了。
+NON_ESCALATING_CATEGORIES: dict[str, str] = {
+    "dosage": (
+        "⚠️ **待作者决定**：用法用量（每日/剂量/片剂/胶囊）是护栏能抓到的严重越界，"
+        "当前不升级人工是历史遗留（第一版只升级 diagnosis/treatment），"
+        "**不是判断的结果**。作者需要在 docs/02-metrics.md 里给个说法。"
+    ),
+    "guidance": "提示词与护栏目前都不会产出这一类（休眠），真正启用时再决定。",
+    "prognosis": "同上：休眠类别。",
+}
+
+
+def test_every_known_category_has_an_explicit_escalation_decision():
+    """每一次"某类别不升级人工"都必须是**写下来的决定**，不能是静默漏写。
+
+    `KNOWN_CATEGORIES` 与 `escalate_categories` 的差集，就是"登记了但不升级"的那批。
+    这批一旦变化，要么是有意调整（那就更新这张表），
+    要么是漏登记（那就补上）——**但绝不能没人知道**。
+    """
+    from agent.policy import AUDIT_POLICY, KNOWN_CATEGORIES
+
+    known = set(KNOWN_CATEGORIES)
+    escalating = set(AUDIT_POLICY.escalate_categories)
+
+    assert escalating <= known, (
+        f"escalate_categories 里有没登记的类别：{sorted(escalating - known)}。"
+        "升级一个引擎不认识的类别名是无效配置（永远匹配不到）。"
+    )
+
+    not_escalating = known - escalating
+    assert not_escalating == set(NON_ESCALATING_CATEGORIES), (
+        "「已知但不升级人工」的类别集合变了，而且不是有意改的。\n"
+        f"  实际：{sorted(not_escalating)}\n"
+        f"  声明：{sorted(NON_ESCALATING_CATEGORIES)}\n\n"
+        "如果这是有意的：更新 NON_ESCALATING_CATEGORIES 并写清理由。\n"
+        "如果是漏写：把类别加进 agent/policy.py 的 escalate_categories。"
+    )
+
+
+def test_every_escalating_category_exists_in_known():
+    """反向守卫：升级名单里的每个类别都必须是登记过的（否则配置永远匹配不到）。"""
+    from agent.policy import AUDIT_POLICY, KNOWN_CATEGORIES
+
+    unknown = set(AUDIT_POLICY.escalate_categories) - set(KNOWN_CATEGORIES)
+    assert not unknown, f"escalate_categories 里有无效类别名：{sorted(unknown)}"
