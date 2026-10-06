@@ -38,3 +38,13 @@
 {"query": "尿酸高能不能吃海鲜", "guideline": "urate-diet", "note": "跨指标，实际问的是饮食"}
 {"query": "抽血前能喝水吗", "guideline": "fasting", "note": "生活细节"}
 {"query": "总胆固醇高要吃药吗", "guideline": "lipid-lifestyle", "note": "涉及用药边界，答案应指向医生评估"}
+{"query": "我常年健身肌肉量大，我的肌酐会升高吗？对身体会有什么影响","metric":"crea","note":"跨指标，涉及生活方式"}
+{"query": "我最近熬夜很多，转氨酶会升高吗？","metric":"alt","note":"口语化，带因果猜测"}
+{"query": "血红蛋白偏低会不会影响运动能力？","guideline":"anemia","note":"跨指标，涉及生活方式"}
+{"query": "空腹血糖高了，我还能吃甜食吗？","guideline":"fasting","note":"跨指标，涉及饮食"}
+{"query": "我听说尿酸高的人不能喝酒，这是真的吗？","guideline":"urate-diet","note":"跨指标，涉及饮食和生活方式"}
+{"query": "我除正常吃饭之外，每天还会吃肌酸，这对我的肌酐以及我的健康会有什么影响？","metric":"crea","note":"口语化，有关生活习惯"}
+{"query": "为什么说常年办公室久坐的人身体不好？主要是哪些指标异常？","guideline":"disclaimer","note":"宽泛的询问，涉及影响面广"}
+{"query": "我最近感觉有点晕，每天嗜睡，血红蛋白偏低会不会是原因？","guideline":"anemia","note":"跨指标，涉及症状"}
+{"query": "我最近体检发现总胆固醇偏高，我应该怎么调整饮食和生活习惯？","guideline":"lipid-lifestyle","note":"跨指标，涉及饮食和生活方式"}
+{"query": "我听说空腹血糖高的人容易得糖尿病，这是真的吗？","guideline":"fasting","note":"跨指标，涉及疾病风险"}
