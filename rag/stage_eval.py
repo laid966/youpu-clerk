@@ -29,13 +29,17 @@ from rag.retrieval_eval import RetrievalCase, RetrievalReport, evaluate_retrieva
 
 __all__ = [
     "DEFAULT_STAGE_LADDER",
+    "DENSE_STAGE_LADDER",
+    "LLM_STAGE_LADDER",
     "REFUSAL_FILE",
+    "LegOverlap",
     "RefusalReport",
     "StageComparison",
     "StageRow",
     "candidate_thresholds",
     "compare_stages",
     "evaluate_refusal",
+    "leg_overlap",
     "load_refusal_questions",
     "sweep_thresholds",
 ]
@@ -158,12 +162,168 @@ class StageComparison:
         return lines
 
 
+@dataclass(frozen=True)
+class LegOverlap:
+    """两条检索腿的**互补性**：它们各自答对了哪些、重叠多少。
+
+    ⚠️ **这是决定"要不要留一条腿"的那个数字**，比 Recall@1 更直接。
+
+    两条腿都答对 31 条、只有关键词对 2 条、**只有语义对 0 条**——
+    那说明语义腿**没有提供关键词腿以外的任何信息**，
+    融合它只会稀释（实测：Recall@1 从 97.2% 掉到 83.3%）。
+    """
+
+    both: int
+    only_a: int
+    only_b: int
+    neither: int
+    label_a: str
+    label_b: str
+    only_a_cases: tuple[RetrievalCase, ...] = ()
+    only_b_cases: tuple[RetrievalCase, ...] = ()
+
+    @property
+    def complementary(self) -> bool:
+        """B 腿有没有"独占的正确"——没有的话，融它没有意义。"""
+        return self.only_b > 0
+
+    def to_markdown(self) -> str:
+        lines = [
+            "## 两条腿的互补性（决定要不要融合的那个数字）",
+            "",
+            f"- **{self.label_a}** 与 **{self.label_b}** 都答对：{self.both} 条",
+            f"- 只有 {self.label_a} 答对：{self.only_a} 条",
+            f"- **只有 {self.label_b} 答对：{self.only_b} 条**",
+            f"- 两条都答错：{self.neither} 条",
+            "",
+        ]
+        if self.complementary:
+            lines += [
+                f"> ✅ {self.label_b} 有 {self.only_b} 条**独占正确**——融合它可能带来增量。",
+                "",
+            ]
+            lines += [f"- {case.case_id} {case.query}" for case in self.only_b_cases]
+            lines.append("")
+        else:
+            lines += [
+                f"> ❌ **{self.label_b} 一条独占正确都没有**——它的正确是 "
+                f"{self.label_a} 的子集。",
+                "> 融合它不会带来新信息，只会稀释强的那一条腿"
+                "（实测：Recall@1 从 97.2% 掉到 83.3%）。",
+                "> **结论：当前语料规模下不要开这条腿；等语料长大再测一次。**",
+                "",
+            ]
+        if self.only_a_cases:
+            lines += [f"**只有 {self.label_a} 答对、{self.label_b} 漏掉的：**", ""]
+            lines += [f"- {case.case_id} {case.query}" for case in self.only_a_cases]
+            lines.append("")
+        return "\n".join(lines)
+
+
+def leg_overlap(
+    knowledge: KnowledgeBase,
+    cases: Sequence[RetrievalCase],
+    a_label: str,
+    b_label: str,
+    a_flags: PipelineFlags,
+    b_flags: PipelineFlags,
+    metrics: Sequence = (),
+) -> LegOverlap:
+    """比较两条腿各自答对/答错的**用例集合**。
+
+    为什么要单独做这件事：`Recall@1` 只告诉你"总体多少"，
+    但**决定要不要融合的是"另一条腿有没有独占的正确"**。
+    两条腿都答对同样的题时，融合只有稀释的份。
+    """
+    pipeline_a = build_pipeline(knowledge=knowledge, flags=a_flags, metrics=metrics)
+    pipeline_b = build_pipeline(knowledge=knowledge, flags=b_flags, metrics=metrics)
+
+    both = only_a = only_b = neither = 0
+    only_a_cases: list[RetrievalCase] = []
+    only_b_cases: list[RetrievalCase] = []
+
+    for case in cases:
+        top_a = pipeline_a.search(case.query, top_k=1)
+        top_b = pipeline_b.search(case.query, top_k=1)
+        hit_a = bool(top_a and top_a[0].chunk_id in case.relevant)
+        hit_b = bool(top_b and top_b[0].chunk_id in case.relevant)
+
+        if hit_a and hit_b:
+            both += 1
+        elif hit_a:
+            only_a += 1
+            only_a_cases.append(case)
+        elif hit_b:
+            only_b += 1
+            only_b_cases.append(case)
+        else:
+            neither += 1
+
+    return LegOverlap(
+        both=both,
+        only_a=only_a,
+        only_b=only_b,
+        neither=neither,
+        label_a=a_label,
+        label_b=b_label,
+        only_a_cases=tuple(only_a_cases),
+        only_b_cases=tuple(only_b_cases),
+    )
+
+
+#: 语义腿的进阶路线：先看单腿有多强，再看融合。
+DENSE_STAGE_LADDER: tuple[tuple[str, PipelineFlags], ...] = (
+    (
+        "① 基线：只有 BM25",
+        PipelineFlags(query_understanding=False, metric_rerank=False),
+    ),
+    (
+        "② + 软路由 + 指标重排（当前最优）",
+        PipelineFlags(query_understanding=True, metric_rerank=True),
+    ),
+    (
+        "③ 只有语义腿（关掉关键词）",
+        PipelineFlags(query_understanding=False, metric_rerank=False, dense=True),
+    ),
+    (
+        "④ 两条腿融合 + 重排",
+        PipelineFlags(query_understanding=True, metric_rerank=True, dense=True),
+    ),
+)
+
+#: LLM 两级（**要花钱**，所以单独一条路线，必须显式 `--llm` 才跑）。
+LLM_STAGE_LADDER: tuple[tuple[str, PipelineFlags], ...] = (
+    (
+        "① 基线：只有 BM25",
+        PipelineFlags(query_understanding=False, metric_rerank=False),
+    ),
+    (
+        "② + 软路由 + 指标重排",
+        PipelineFlags(query_understanding=True, metric_rerank=True),
+    ),
+    (
+        "③ + LLM 查询改写",
+        PipelineFlags(query_understanding=True, metric_rerank=True, llm_rewrite=True),
+    ),
+    (
+        "④ + LLM 重排",
+        PipelineFlags(
+            query_understanding=True,
+            metric_rerank=True,
+            llm_rewrite=True,
+            llm_rerank=True,
+        ),
+    ),
+)
+
+
 def compare_stages(
     knowledge: KnowledgeBase | None = None,
     cases: Sequence[RetrievalCase] = (),
     metrics: Sequence = (),
     k_values: tuple[int, ...] = (1, 3, 5),
     ladder: Sequence[tuple[str, PipelineFlags]] = DEFAULT_STAGE_LADDER,
+    llm: "LlmStages | None" = None,
 ) -> StageComparison:
     if knowledge is None:
         knowledge = load_knowledge()
@@ -171,7 +331,7 @@ def compare_stages(
     rows: list[StageRow] = []
     correctness_label = ""
     for label, flags in ladder:
-        pipeline = build_pipeline(knowledge=knowledge, flags=flags, metrics=metrics)
+        pipeline = build_pipeline(knowledge=knowledge, flags=flags, metrics=metrics, llm=llm)
         correctness_label = pipeline.correctness.label
         rows.append(
             StageRow(

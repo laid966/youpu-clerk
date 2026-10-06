@@ -310,10 +310,152 @@ def test_extra_citations_are_merged(metrics, knowledge):
     assert sample in merged
 
 
-def test_unimplemented_dense_stage_fails_loudly():
-    """向量级还没实现——打开它必须**明确报错**，不能假装打开了。"""
-    with pytest.raises(NotImplementedError, match="向量级还没实现"):
-        PipelineFlags(dense=True)
+def test_dense_stage_degrades_loudly_when_model_missing(knowledge, metrics, tmp_path):
+    """模型不在时，语义腿**降级但不静默**。
+
+    - 不报错：CI 里没有模型也不该失败（项目原则：CI 不依赖密钥/模型）
+    - 但**必须看得见**：`name` 里要带上"未启用 + 原因"，
+      否则报告里会出现一个根本不存在的 Dense，数字就变成假的
+    """
+    from rag.dense import NullBackend
+
+    pipeline = build_pipeline(
+        knowledge=knowledge,
+        flags=PipelineFlags(dense=True),
+        metrics=metrics,
+        dense=NullBackend(reason="测试用：假装模型不在"),
+    )
+
+    assert pipeline.dense is None
+    assert "未启用" in pipeline.name
+    assert "假的模型不在" in pipeline.dense_reason or "模型不在" in pipeline.dense_reason
+    # 降级后链路仍然能用（只是少了语义这条腿）
+    assert pipeline.search("ALT 偏高怎么办")
+    assert "语义腿未启用" in pipeline.describe()
+
+
+def test_dense_leg_runs_when_model_is_present(knowledge, metrics):
+    """模型在时，语义腿要真的参与，而且**结果顺序应当与只有关键词时不同**。
+
+    模型不在就 skip —— 不 fail（CI 里没有模型）。
+    """
+    from rag.dense import build_dense_backend
+
+    backend = build_dense_backend()
+    if not backend.available():
+        pytest.skip("本地语义模型不在，跳过（CI 里正常）")
+
+    keyword_only = build_pipeline(
+        knowledge=knowledge,
+        flags=PipelineFlags(query_understanding=False, metric_rerank=False),
+        metrics=metrics,
+    )
+    fused = build_pipeline(
+        knowledge=knowledge,
+        flags=PipelineFlags(query_understanding=False, metric_rerank=False, dense=True),
+        metrics=metrics,
+        dense=backend,
+    )
+
+    assert "Dense" in fused.name
+    assert "RRF" in fused.name
+
+    # 至少要有一条问句的排序被语义腿影响，否则说明这条腿根本没接上
+    changed = any(
+        [h.chunk_id for h in keyword_only.search(case.query)]
+        != [h.chunk_id for h in fused.search(case.query)]
+        for case in tuple(build_eval_set(knowledge))[:10]
+    )
+    assert changed, "语义腿接上了但没影响任何排序——多半是没生效"
+
+
+def test_dense_text_differs_from_index_text(knowledge):
+    """两条腿必须用**不同的文本**。
+
+    实测教训：第一版共用 `index_text()`，语义腿只有 75.0%；
+    改用 `dense_text()` 后升到 86.1%（+11 个点）。
+    根因是 `index_text()` 里为 BM25 设计的标题重复与同质化 keywords 字段
+    会让 8 张指标卡在向量空间里挤成一团。
+    """
+    for chunk in knowledge.chunks:
+        assert chunk.dense_text() != chunk.index_text()
+
+    # dense_text 不许带那串为 BM25 准备的公共关键词
+    metric_chunk = next(c for c in knowledge.chunks if c.layer == LAYER_EXPLANATION)
+    assert metric_chunk.keywords not in metric_chunk.dense_text()
+
+
+def test_rrf_weights_can_shift_the_ranking():
+    """融合权重必须真的能改变排序——否则"扫权重"就是假的。"""
+    rankings = [["a", "b", "c"], ["c", "b", "a"]]
+
+    equal = rrf_fuse(rankings, weights=[1.0, 1.0])
+    keyword_heavy = rrf_fuse(rankings, weights=[1.0, 0.0])
+
+    assert equal[0][0] == "a"
+    assert keyword_heavy[0][0] == "a"
+    # 语义腿权重为 0 时，语义腿独有的次序不再影响头名
+    assert [doc for doc, _ in keyword_heavy] == ["a", "b", "c"]
+
+
+def test_rrf_rejects_mismatched_weights():
+    with pytest.raises(ValueError, match="weights"):
+        rrf_fuse([["a"], ["b"]], weights=[1.0])
+
+
+def test_llm_stages_reject_missing_judge(knowledge, metrics):
+    """开了 LLM 级却没注入 judge —— **构造时就报错**，不要等到搜索时。"""
+    with pytest.raises(ValueError, match="LlmStages"):
+        build_pipeline(
+            knowledge=knowledge,
+            flags=PipelineFlags(llm_rewrite=True),
+            metrics=metrics,
+        )
+
+
+def test_llm_rewrite_parses_and_rejects_garbage(metrics):
+    """LLM 输出解析：正常的要能读，垃圾要**报错而不是静默退回**。"""
+    from agent.judge import FakeJudge
+    from rag.llm_stages import LlmStages
+
+    good = LlmStages(FakeJudge('{"terms": ["转氨酶", "alt", "谷丙"]}'))
+    outcome = good.rewrite("转氨酶高")
+    assert outcome.error is None
+    assert outcome.terms == ("转氨酶", "alt", "谷丙")
+    assert good.expand_query("转氨酶高").startswith("转氨酶高 ")
+
+    bad = LlmStages(FakeJudge("我不知道该输出什么"))
+    broken = bad.rewrite("转氨酶高")
+    assert broken.error is not None, "解析失败必须报错，绝不能当成'没改写'混过去"
+    assert bad.stats.errors == 1
+    # 失败时保持原问句不变（可恢复）
+    assert bad.expand_query("转氨酶高") == "转氨酶高"
+
+
+def test_llm_rerank_validates_indices():
+    """重排编号越界/重复/非整数 —— **一律整条作废**，不做部分采纳。"""
+    from agent.judge import FakeJudge
+    from rag.llm_stages import LlmStages
+    from rag.retriever import Hit
+
+    hits = [
+        Hit(chunk_id=f"kb://metric/m{i}", layer=LAYER_EXPLANATION, title=f"标题{i}",
+            text="正文", score=1.0 - i * 0.1)
+        for i in range(3)
+    ]
+
+    good = LlmStages(FakeJudge('{"order": [3, 1]}'))
+    ordered, outcome = good.rerank("问句", hits)
+    assert outcome.error is None
+    assert [hit.chunk_id for hit in ordered[:2]] == ["kb://metric/m2", "kb://metric/m0"]
+
+    for bad_json in ('{"order": [9]}', '{"order": [1, 1]}', '{"order": ["a"]}', '{"order": 1}'):
+        stages = LlmStages(FakeJudge(bad_json))
+        kept, outcome = stages.rerank("问句", hits)
+        assert outcome.error is not None, f"{bad_json} 应当被拒绝"
+        assert [hit.chunk_id for hit in kept] == [hit.chunk_id for hit in hits], (
+            "作废时必须保留原顺序"
+        )
 
 
 def test_recall_stage_cannot_be_disabled():

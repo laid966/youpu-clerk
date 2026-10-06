@@ -30,9 +30,10 @@ from typing import Sequence
 
 from rag.bm25 import BM25Index, build_index
 from rag.boundary import CORRECTNESS, REFUSAL, CorrectnessRule, RefusalBoundary
+from rag.dense import DenseBackend, build_dense_backend
 from rag.knowledge import RETRIEVABLE_LAYERS, KnowledgeBase, load_knowledge
 from rag.retriever import Hit
-from rag.stages import QueryPlan, apply_metric_boost, understand_query
+from rag.stages import QueryPlan, apply_metric_boost, rrf_fuse, understand_query
 
 __all__ = [
     "PipelineFlags",
@@ -55,11 +56,16 @@ class PipelineFlags:
     """只影响 `explain()`，不影响 `search()`——见模块开头的说明。"""
 
     dense: bool = False
-    """向量那一级。**目前还没有实现**（`rag/dense.py` 是 P1 的事）。
+    """语义这条腿（本地 ONNX 向量检索）。
 
-    留这个开关是为了让"要不要上向量"有据可依：
-    先看 `rag eval --stages` 里查询理解与重排把 Recall@1 顶到多少，
-    再决定向量还有没有空间。
+    **它和关键词那条腿解决的是不同的问题**：
+    - 关键词（BM25）：精确、可解释；用户写 `ALT` 就一定匹配得到 `ALT`
+    - 语义（向量）：解决**词汇不匹配**（"吃药" vs "干预"、"转氨酶" vs "丙氨酸氨基转移酶"）
+
+    两条腿的**错法不一样，所以合起来更稳**。融合用 RRF（按名次，不是分数相加）。
+
+    模型不在时**降级为只有关键词那一腿**，并且 `name` / 报告里会写明
+    "语义腿未启用"——**不静默降级**。
     """
 
     hard_layer_routing: bool = False
@@ -73,16 +79,25 @@ class PipelineFlags:
     不是为了启用它。**一个能被复现的失败，比一句"我们试过了"值钱。**
     """
 
+    llm_rewrite: bool = False
+    """查询改写（LLM）：把口语问句扩成检索词，**拼在**原问句后面。
+
+    需要给 pipeline 注入 `LlmStages`（会花钱，但有缓存）。**默认关闭**：
+    它是唯一会让评测从"确定性免费"变成"要花钱"的级，所以必须显式打开。
+    """
+
+    llm_rerank: bool = False
+    """listwise 重排（LLM）：把召回的候选交给模型排序。
+
+    同样需要注入 `LlmStages`，同样默认关闭。
+    解析失败**不降级、不猜**——保留原顺序并计入错误（见 `rag/llm_stages.py`）。
+    """
+
     def __post_init__(self) -> None:
         if not self.recall:
             raise ValueError(
                 "recall=False 会让链路什么都不返回。"
                 "要表达「只用基线」，请用 flags 里其他的开关，不要关召回。"
-            )
-        if self.dense:
-            raise NotImplementedError(
-                "向量级还没实现（P1）。要启用它需要先装 onnxruntime + 下载本地模型，"
-                "见 docs/20-RAG链路.md 的说明。"
             )
 
     @property
@@ -94,6 +109,10 @@ class PipelineFlags:
             parts.append("硬路由（反例）" if self.hard_layer_routing else "软路由")
         if self.metric_rerank:
             parts.append("指标重排")
+        if self.llm_rewrite:
+            parts.append("LLM改写")
+        if self.llm_rerank:
+            parts.append("LLM重排")
         return "+".join(parts)
 
 
@@ -145,6 +164,8 @@ class RagPipeline:
         boundary: RefusalBoundary | None = None,
         correctness: CorrectnessRule | None = None,
         metrics: Sequence = (),
+        llm: "LlmStages | None" = None,
+        dense: "DenseBackend | None" = None,
     ) -> None:
         self.knowledge = knowledge
         self.index = index
@@ -152,6 +173,69 @@ class RagPipeline:
         self.boundary = boundary or REFUSAL
         self.correctness = correctness or CORRECTNESS
         self.metrics = tuple(metrics)
+        self.llm = llm
+        self.dense = dense
+        self._dense_vectors: dict[str, list[float]] = {}
+        self._dense_doc_ids: tuple[str, ...] = ()
+
+        # 打开了 LLM 级却没注入 —— **构造时就报错，不要等到搜索时才失败**
+        needs_llm = self.flags.llm_rewrite or self.flags.llm_rerank
+        if needs_llm and llm is None:
+            raise ValueError(
+                "开了 LLM 级（llm_rewrite / llm_rerank）但没注入 LlmStages。\n"
+                "  from agent.judge import build_judge\n"
+                "  from rag.llm_stages import LlmStages\n"
+                "  llm = LlmStages(build_judge())"
+            )
+
+        # 语义腿：模型在就启用，不在就**明确降级**（不静默、不报错）
+        #
+        # 为什么不报错：CI 里没有模型也不该失败——项目的原则是"CI 不依赖密钥/模型"。
+        # 但降级必须**看得见**：名字里带原因，报告里也会写。
+        self.dense_reason: str | None = None
+        if self.flags.dense:
+            if dense is None:
+                dense = build_dense_backend()
+            if not dense.available():
+                self.dense_reason = getattr(dense, "reason", "不可用")
+                self.dense = None
+            else:
+                self.dense = dense
+        else:
+            self.dense = None
+
+    # ------------------------------------------------------------------ #
+    # 语义腿：文档向量只算一次
+    # ------------------------------------------------------------------ #
+
+    def _ensure_dense_index(self) -> None:
+        if self._dense_vectors or self.dense is None:
+            return
+        chunks = self.knowledge.layers(*RETRIEVABLE_LAYERS)
+        self._dense_doc_ids = tuple(chunk.chunk_id for chunk in chunks)
+        # 用 dense_text() 而不是 index_text()：后者带着为 BM25 设计的
+        # 标题重复与同质化 keywords 字段，会把语义表示污染成一团（实测过）。
+        vectors = self.dense.embed([chunk.dense_text() for chunk in chunks])
+        self._dense_vectors = dict(zip(self._dense_doc_ids, vectors))
+
+    def _dense_ranking(
+        self, query: str, allowed: set[str]
+    ) -> list[tuple[str, float]]:
+        """语义腿的排名。**查询侧加 BGE 的检索指令前缀，文档侧不加。**"""
+        self._ensure_dense_index()
+        if self.dense is None:
+            return []
+        candidates = [doc_id for doc_id in self._dense_doc_ids if doc_id in allowed]
+        if not candidates:
+            return []
+        from rag.dense import QUERY_INSTRUCTION, cosine_ranking
+
+        query_vector = self.dense.embed([QUERY_INSTRUCTION + query])[0]
+        return cosine_ranking(
+            query_vector,
+            [self._dense_vectors[doc_id] for doc_id in candidates],
+            candidates,
+        )
 
     # ------------------------------------------------------------------ #
     # 兼容接口：现有评测直接能用
@@ -159,7 +243,15 @@ class RagPipeline:
 
     @property
     def name(self) -> str:
-        return self.flags.label
+        """链路的**实际**配置——注意"想要"和"实际"是两回事：
+
+        开了语义腿但模型不在时，`flags.label` 会写 `Dense`，
+        而这里会**补上"未启用"和原因**，避免报告里出现一个假的 Dense。
+        """
+        label = self.flags.label
+        if self.flags.dense and self.dense is None:
+            label += f"（语义腿未启用：{self.dense_reason}）"
+        return label
 
     def search(
         self, query: str, top_k: int = 5, layers: tuple[str, ...] | None = None
@@ -167,15 +259,23 @@ class RagPipeline:
         """检索。**不应用拒答**（检索质量与回答策略是两件事，见模块开头）。"""
         plan = self.plan(query)
 
+        # ---- ① 查询改写（LLM，可选）----
+        search_query = query
+        if self.flags.llm_rewrite and self.llm is not None:
+            search_query = self.llm.expand_query(query)
+
         wanted = layers if layers is not None else plan.layers
         allowed = {chunk.chunk_id for chunk in self.knowledge.layers(*wanted)}
 
-        hits: list[Hit] = []
-        for scored in self.index.search(query, top_k=max(top_k, len(allowed)), allowed_ids=allowed):
+        # ---- ② 关键词腿：BM25 ----
+        keyword_hits: list[Hit] = []
+        for scored in self.index.search(
+            search_query, top_k=max(top_k, len(allowed)), allowed_ids=allowed
+        ):
             chunk = self.knowledge.by_id(scored.doc_id)
             if chunk is None:  # pragma: no cover — 索引与知识库同源
                 continue
-            hits.append(
+            keyword_hits.append(
                 Hit(
                     chunk_id=chunk.chunk_id,
                     layer=chunk.layer,
@@ -185,8 +285,50 @@ class RagPipeline:
                 )
             )
 
+        # ---- ③ 腿内重排：指标/优先层加权 ----
+        # **必须放在融合之前**：它只调整关键词腿内部的顺序。
+        # 如果放到融合之后，BM25 分（量纲 3~13）会和一个由名次推出的分（约 0.016）相加，
+        # 结果由量级大的那个随机主宰——这类 bug 不会报错，只会让排序悄悄变差。
         if self.flags.metric_rerank:
-            hits = apply_metric_boost(hits, plan)
+            keyword_hits = apply_metric_boost(keyword_hits, plan)
+
+        hits = keyword_hits
+
+        # ---- ④ 语义腿 + RRF 融合 ----
+        if self.flags.dense and self.dense is not None:
+            dense_ranking = self._dense_ranking(search_query, allowed)
+            if dense_ranking:
+                from rag.boundary import FUSION_WEIGHTS
+
+                keyword_ranking = [hit.chunk_id for hit in keyword_hits]
+                fused = rrf_fuse(
+                    [keyword_ranking, [doc_id for doc_id, _score in dense_ranking]],
+                    weights=FUSION_WEIGHTS,
+                )
+                by_id = {hit.chunk_id: hit for hit in keyword_hits}
+                merged: list[Hit] = []
+                for doc_id, rrf_score in fused:
+                    chunk = self.knowledge.by_id(doc_id)
+                    if chunk is None:  # pragma: no cover
+                        continue
+                    base = by_id.get(doc_id)
+                    merged.append(
+                        Hit(
+                            chunk_id=chunk.chunk_id,
+                            layer=chunk.layer,
+                            title=chunk.title,
+                            text=chunk.text,
+                            # score 保留 BM25 分（拒答阈值是按它标定的）；
+                            # 语义腿独有的条目没有 BM25 分，记 0。
+                            score=base.score if base is not None else 0.0,
+                            rrf_score=rrf_score,
+                        )
+                    )
+                hits = merged
+
+        # ---- ⑤ LLM 重排（可选，最后一道）----
+        if self.flags.llm_rerank and self.llm is not None:
+            hits, _outcome = self.llm.rerank(query, hits)
 
         return hits[:top_k]
 
@@ -249,7 +391,9 @@ class RagPipeline:
             f"| 查询理解 | {'开' if self.flags.query_understanding else '关'}"
             f"{'（**硬路由**，仅用于复现实验）' if self.flags.hard_layer_routing else '（软路由）' if self.flags.query_understanding else ''} |",
             f"| BM25 召回 | 开 |",
-            f"| 向量召回 | {'开' if self.flags.dense else '关（未实现，P1）'} |",
+            f"| 向量召回 | {'开（' + str(self.dense.name) + '）' if self.dense is not None else ('关' if not self.flags.dense else '**开了但不可用：' + str(self.dense_reason) + '**')} |",
+            f"| LLM 查询改写 | {'开' if self.flags.llm_rewrite else '关'} |",
+            f"| LLM 重排 | {'开' if self.flags.llm_rerank else '关'} |",
             f"| 指标重排 | {'开' if self.flags.metric_rerank else '关'} |",
             f"| 拒答判断 | {'开' if self.flags.refusal else '关'}（只影响 explain，不影响 search）|",
             "",
@@ -265,6 +409,8 @@ def build_pipeline(
     boundary: RefusalBoundary | None = None,
     correctness: CorrectnessRule | None = None,
     metrics: Sequence = (),
+    llm: "LlmStages | None" = None,
+    dense: DenseBackend | None = None,
 ) -> RagPipeline:
     if knowledge is None:
         knowledge = load_knowledge()
@@ -279,4 +425,6 @@ def build_pipeline(
         boundary=boundary,
         correctness=correctness,
         metrics=metrics,
+        llm=llm,
+        dense=dense,
     )

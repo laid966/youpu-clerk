@@ -73,6 +73,25 @@ class Chunk:
         """
         return "\n".join(part for part in (self.title, self.title, self.keywords, self.text) if part)
 
+    def dense_text(self) -> str:
+        """送进**语义索引**的文本。**和 `index_text()` 刻意不一样。**
+
+        实测发现的真问题：第一版两条腿共用 `index_text()`，结果语义腿的
+        Recall@1 只有 75%（BM25 是 91.7%），融合后反而把整体从 97.2% 拖到 77.8%。
+
+        根因是 `index_text()` 里那两样东西**是为 BM25 设计的字段加权**：
+
+        - **标题重复两次**：BM25 没有字段权重，重复标题是唯一的加权办法。
+          但对语义模型来说，同一句话出现两次只会**稀释正文**。
+        - **`keywords` 字段**：每张指标卡都填**同一串**（"偏高 升高 复查 门诊…"）。
+          对 BM25 它是"让这些词失去区分度"的手段；
+          对语义模型它是一大段**完全相同的样板文字**，让 8 张卡在向量空间里挤成一团。
+
+        > **同一条文本服务两种检索器，必然有一边被牺牲。**
+        > 所以这里拆成两个方法：`index_text()` 给关键词腿，`dense_text()` 给语义腿。
+        """
+        return f"{self.title}\n{self.text}".strip()
+
 
 @dataclass(frozen=True)
 class KnowledgeBase:

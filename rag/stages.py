@@ -159,27 +159,36 @@ def understand_query(
 
 
 def rrf_fuse(
-    rankings: Sequence[Sequence[str]], k: int = 60
+    rankings: Sequence[Sequence[str]],
+    k: int = 60,
+    weights: Sequence[float] | None = None,
 ) -> list[tuple[str, float]]:
     """RRF（Reciprocal Rank Fusion）：**按名次融合多路检索结果**。
 
-        score(d) = Σ_r  1 / (k + rank_r(d))
+        score(d) = Σ_r  w_r / (k + rank_r(d))
 
     为什么必须按名次、不能把分数加起来：
     BM25 的分数是**无界**的（可以是 0.3 也可以是 30），
     向量相似度在 [0,1] 之间。两者相加等于让其中一路随机主宰排序——
     换个语料，占主导的那一路就变了，而且没人看得出来。
 
-    RRF 只看"排第几"，天然免疫量纲问题。k 取 60 是常用默认值
-    （它压平头部差距，避免单路的第一名通吃）。
+    `weights` 是**每一路的权重**，默认等权。等权有一个前提：
+    **两路的质量相当**。质量差很多时等权融合会把强的那一路拖下来——
+    本项目实测过：BM25 单腿 91.7%、语义单腿 75.0%，等权融合后掉到 77.8%。
+    所以权重必须可调，而且要**用数字调**，不能凭感觉。
     """
     if k <= 0:
         raise ValueError("k 必须为正——否则分母会退化")
 
+    if weights is None:
+        weights = [1.0] * len(rankings)
+    if len(weights) != len(rankings):
+        raise ValueError(f"weights 有 {len(weights)} 个，但 rankings 有 {len(rankings)} 路")
+
     scores: dict[str, float] = {}
-    for ranking in rankings:
+    for weight, ranking in zip(weights, rankings):
         for position, doc_id in enumerate(ranking, start=1):
-            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + position)
+            scores[doc_id] = scores.get(doc_id, 0.0) + weight / (k + position)
 
     # 分数相同时按 chunk_id 稳定排序，保证可复现
     return sorted(scores.items(), key=lambda item: (-item[1], item[0]))

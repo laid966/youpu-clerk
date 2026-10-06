@@ -24,15 +24,26 @@ class Hit:
     title: str
     text: str
     score: float
+    rrf_score: float | None = None
+    """多路融合后的分数（只有开到两条腿以上时才有值）。
+
+    **为什么和 `score` 分开**：`score` 是 BM25 分（无界，用来和拒答阈值比较），
+    `rrf_score` 是按**名次**融合出来的分（约 1/61 量级）。
+    两者量纲完全不同，混在一起用会让阈值判断失去意义——
+    所以宁可多一个字段，也不做隐式换算。
+    """
 
     def to_dict(self) -> dict:
-        return {
+        payload = {
             "chunk_id": self.chunk_id,
             "layer": self.layer,
             "title": self.title,
             "text": self.text,
             "score": round(self.score, 4),
         }
+        if self.rrf_score is not None:
+            payload["rrf_score"] = round(self.rrf_score, 6)
+        return payload
 
 
 class Retriever:

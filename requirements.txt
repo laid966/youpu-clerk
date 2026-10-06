@@ -14,6 +14,19 @@ python-dotenv==1.2.2             # 读 .env
 PyYAML==6.0.3                    # 读 domain/ 下的规则文件（规则是数据，不是代码）
 jieba==0.42.1                    # 中文分词（BM25 按词算分，而中文没有空格）
 
+# ---- 语义检索那一腿（本地 ONNX，离线零成本）----
+#
+# 为什么是本地模型而不是调 embedding API：
+# 项目的原则是「CI 不需要密钥」。调 API 会让语义腿永远进不了 CI，而且结果不可复现。
+# 这三个包只服务 rag/dense.py；**模型文件不入库**（约 23MB，见 .gitignore）。
+# 装完跑一次：python -m rag fetch-model
+#
+# 模型不在时链路**降级为只有关键词那一腿**，并在报告里写明"语义腿未启用"——
+# 所以 CI 里没有模型也不会失败（相关测试自动 skip）。
+numpy==2.5.3                     # 向量运算
+onnxruntime==1.30.0              # 跑 ONNX 模型（CPU，不需要 GPU）
+tokenizers==0.23.2               # BGE 的 fast tokenizer
+
 # ---- 测试 ----
 pytest==9.1.1
 
