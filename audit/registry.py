@@ -77,6 +77,17 @@ class DetectorContext:
     全部从这里读。为 `None` 时退回核心默认常量（医学演示的那套），
     这样旧调用方一行都不用改。"""
 
+    extra_citations: tuple[str, ...] = ()
+    """调用方补充的合法引用（例如**知识库的 chunk id**）。
+
+    用途：RAG 产出的解读，它的"依据"应当来自知识库里的 chunk。
+    但 `audit/` **不许 import `rag/`**（会形成循环依赖），
+    所以由**调用方**把集合扩大后传进来——审计器仍然只依赖
+    "一个合法的引用集合"这个概念，而不依赖知识库怎么实现。
+
+    这也让 `KnowledgeBase.citation_ids()` 从死代码变成真正被用上的一环。
+    """
+
     @property
     def safety_terms(self) -> tuple[str, ...]:
         """本场景的禁用表达表。由插件提供，本体不写死。"""

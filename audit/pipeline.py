@@ -206,13 +206,27 @@ def judge_metric(metric: Metric, sex: str, age: int, value: float) -> Mapping[st
     return adjudicate(_domain_for(metric), report.facts_for(metric)).to_dict()
 
 
-def known_citations(metrics: Sequence[Metric]) -> frozenset[str]:
-    """全部「合法引用」的集合 = 各判定域里所有规则的 cite。
+def known_citations(
+    metrics: Sequence[Metric], extra: Sequence[str] = ()
+) -> frozenset[str]:
+    """全部「合法引用」的集合 = 各判定域里所有规则的 cite + 调用方补充的 `extra`。
 
     审计器用它做引用存在性检查：解读里出现的任何依据，都必须在这一集合里。
     这是"引用编造"这类缺陷的判据，不需要模型参与。
+
+    ## 为什么要留 `extra` 这个口子
+
+    因为"合法依据"不止一种来源：
+
+    - **判定域规则里的 `cite`**（本函数自己收）——证明"这个判定按哪条规则算的"
+    - **知识库里的 chunk**（`rag` 层，通过 `extra` 传进来）——证明"这段解释有出处"
+
+    但 `audit/` **不许 import `rag/`**（否则形成循环依赖：
+    `rag/knowledge.py:119` 已经有一个反向的延迟导入在打补丁）。
+    所以方向是**调用方把集合扩大**，而不是让审计器去认识知识库。
+    这条边界有测试守着。
     """
-    cites: set[str] = set()
+    cites: set[str] = set(extra)
     for metric in metrics:
         for rule in _domain_for(metric).rules:
             cites.add(rule.cite)
