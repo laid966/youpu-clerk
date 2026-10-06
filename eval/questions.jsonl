@@ -1,16 +1,32 @@
 # 真实问句集 ★ 这是你的文件 ★
 #
+# ⚠️ 先搞懂这件事（最容易误会）：metric / guideline 不是"医学正确答案"，
+#    而是「**这句话应该被检索出的那条知识库条目**」。
+#    例：{"query": "转氨酶高是不是熬夜熬的", "metric": "alt"}
+#    意思是"这么问时，应该返回 kb://metric/alt（转氨酶那张卡）"。
+#    你不需要判断熬夜会不会让转氨酶高——那是医学问题；你只判断该查哪一条。
+#
 # 格式：每行一个 JSON。metric 与 guideline 必须且只能写一个 —— 它就是标准答案。
 #   {"query": "你的问法", "metric": "alt", "note": "可选说明"}
 #   {"query": "你的问法", "guideline": "urate-diet", "note": "可选说明"}
 #
-# 可用的 metric（8 个）：alt ast ggt crea ua tc fpg hgb
-# 可用的 guideline（7 个）：critical-value recheck fasting urate-diet lipid-lifestyle anemia disclaimer
+# 可用的 metric（8 个）：
+#   alt 丙氨酸氨基转移酶(俗称转氨酶) | ast 天门冬氨酸氨基转移酶(谷草) | ggt γ-谷氨酰转移酶
+#   crea 肌酐 | ua 尿酸 | tc 总胆固醇 | fpg 空腹血糖 | hgb 血红蛋白(血色素)
+#
+# 可用的 guideline（7 个）：
+#   critical-value 危急值怎么办 | recheck 复查的意义与时间 | fasting 抽血前准备
+#   urate-diet 尿酸与饮食 | lipid-lifestyle 血脂与生活方式 | anemia 血红蛋白偏低
+#   disclaimer 本工具能做什么
 #
 # 为什么这件事必须你来做：
 #   系统里现有的 31 条问句是**模板生成的**（"ALT 偏高怎么办"这种），太干净。
 #   真实用户会说"转氨酶高是不是熬夜熬的""肌酐多少算高"——口语、省略、错别字、跨指标。
 #   真实问法上的 Recall@1 才是能写进简历的数字。
+#
+# 难问法（目标至少 10 条）：用别名 / 口语省略 / 带因果猜测 / 跨指标 /
+#   一次问两件事 / 错别字 / 问指标但答案是通用指南。
+#   详细说明见 docs/10-你的任务.md 的 T3 一节。
 #
 # 目标：100 条。先写 10 条也行，跑一次看分数，比空想有用。
 # 怎么跑：.\.venv\Scripts\python.exe -m rag eval
