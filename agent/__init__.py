@@ -18,6 +18,7 @@
 """
 
 from agent.chat import (
+    ChatMessage,
     ChatSession,
     ChatTurn,
     FrozenAudit,
@@ -36,6 +37,7 @@ __all__ = [
     "CHAT_POLICY",
     "CachedJudge",
     "ChatPolicy",
+    "ChatMessage",
     "ChatSession",
     "ChatTurn",
     "DeepSeekJudge",

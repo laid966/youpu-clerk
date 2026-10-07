@@ -2,33 +2,48 @@
 
 策略全在 `agent/chat_policy.py`（★你的文件★）。这里只负责"照策略执行"。
 
+## 单位约定（读代码前先看这段）
+
+**一轮 = 一次问答 = 用户问 + 助手答。** 不是"一条消息"。
+
+数据结构里 `messages` 是**消息列表**（用户一条、助手一条），因为那才是发给模型的东西；
+但**所有策略阈值都按"次问答"算**，字段名里都带 `exchange`。
+
+**为什么要区分**（这是踩过的坑）：
+
+1. **问答是不可分割的语义单元**——保留问题却丢掉答案，用户看不到有用上下文
+2. **消息数可能是奇数**（模型调用失败时只剩用户那句）——按"条"保留会把一对问答劈开，
+   留下一个**没有答案的问题**
+
+所以压缩按 `_split_exchanges()` **成对切**，落单的那条**永远保留、永不被压缩**。
+
 ## 四条硬约束（都有测试守着）
 
 ### ① 审计结论**一经冻结，不可改写**
 
 `ChatSession.freeze_audit()` 只能调用一次，之后 `frozen_audit` 是**只读属性**。
-对话层没有、也不会提供任何修改它的路径。
 
 **为什么必须这么硬**：如果对话能改结论，那"这份报告被判有问题"就取决于
 用户跟你聊了什么——**审计器的可复现性就没了**，简历上那个 87.9% 也就不成立。
 
 **方向是单向的：审计结论 → 对话（只读）。**
 
-### ② 压缩**只动对话历史**，不碰受保护的字段
+### ② 压缩**只动对话历史**，受保护字段**结构上取不到**
 
-`always_keep` 里列的字段（profile / frozen_audit / pinned）**根本不参与压缩**——
-不是"摘要时小心一点"，而是**结构上取不到**。
-
-**为什么**：靠摘要保住"我对海鲜过敏"是不可验证的承诺；字段保护是可测的。
+`always_keep` 里的字段（profile / frozen_audit / pinned）**根本不参与压缩**。
+不是"摘要时小心一点"，而是**结构上拿不到**。
 
 ### ③ 截断必须留下痕迹
 
 摘要超长时截断，**必须写出"有东西被截断了"**。
 悄悄截断 = 让用户以为系统记得全部 —— 这比丢东西更危险。
 
-### ④ 会话互相隔离
+### ④ 会话互相隔离，且可以单独删除
 
-每个会话有独立 id 与独立存储行，互不影响；可以单独删除。
+### ⑤ 模型调用失败必须**回滚**
+
+失败时把已经加进去的用户消息**撤回**，让会话保持"问答成对"，
+然后**把异常抛出去**（不静默）。
 """
 
 from __future__ import annotations
@@ -44,6 +59,7 @@ from agent.chat_policy import CHAT_POLICY, CHAT_PROMPT, ChatPolicy
 from agent.judge import Judge
 
 __all__ = [
+    "ChatMessage",
     "ChatSession",
     "ChatTurn",
     "CompactReport",
@@ -70,10 +86,16 @@ def _now() -> str:
 
 
 @dataclass(frozen=True)
-class ChatTurn:
+class ChatMessage:
+    """**一条消息**（不是一轮对话）。一轮 = 两条消息（用户 + 助手）。"""
+
     role: str  # "user" | "assistant"
     text: str
     at: str = field(default_factory=_now)
+
+
+#: 旧名字，保留以防外部引用。语义是**消息**，不是"轮"。
+ChatTurn = ChatMessage
 
 
 @dataclass(frozen=True)
@@ -96,13 +118,29 @@ class FrozenAudit:
         if self.findings:
             lines.append("报出的条目：")
             for index, finding in enumerate(self.findings, start=1):
-                kind = finding.get("kind", "?")
-                target = finding.get("target", "?")
-                evidence = finding.get("evidence", "")
-                lines.append(f"  {index}. [{kind}] {target}　{evidence}")
+                lines.append(
+                    f"  {index}. [{finding.get('kind', '?')}] "
+                    f"{finding.get('target', '?')}　{finding.get('evidence', '')}"
+                )
         else:
             lines.append("未报出任何条目。")
         return "\n".join(lines)
+
+
+def _split_exchanges(
+    messages: Sequence[ChatMessage],
+) -> tuple[list[tuple[ChatMessage, ChatMessage]], tuple[ChatMessage, ...]]:
+    """把消息列表切成**成对的问答** + 末尾可能落单的一条。
+
+    **绝不把一对问答劈开。** 落单的那条（模型调用失败留下的）要单独处理，
+    它代表"用户问了但还没答"，所以**永远保留、不参与压缩**。
+    """
+    pairs: list[tuple[ChatMessage, ChatMessage]] = []
+    index = 0
+    while index + 1 < len(messages):
+        pairs.append((messages[index], messages[index + 1]))
+        index += 2
+    return pairs, tuple(messages[index:])
 
 
 class ChatSession:
@@ -113,7 +151,7 @@ class ChatSession:
         session_id: str,
         profile: dict | None = None,
         pinned: Sequence[str] = (),
-        turns: Sequence[ChatTurn] = (),
+        messages: Sequence[ChatMessage] = (),
         summary: str = "",
         created_at: str | None = None,
         model_calls: int = 0,
@@ -122,12 +160,29 @@ class ChatSession:
         self.session_id = session_id
         self.profile: dict = dict(profile or {})
         self.pinned: list[str] = list(pinned)
-        self.turns: list[ChatTurn] = list(turns)
+        self.messages: list[ChatMessage] = list(messages)
         self.summary = summary
         self.created_at = created_at or _now()
         self.model_calls = model_calls
         self.compactions = compactions
         self._frozen_audit: FrozenAudit | None = None
+
+    # ---- 计数：一律按"次问答" ----
+
+    @property
+    def exchange_count(self) -> int:
+        """已经完成的**问答次数**（用户问 + 助手答 = 1 次）。
+
+        ⚠️ 不要用 `len(messages)` 代替它——那是消息条数，是它的两倍左右。
+        """
+        pairs, _dangling = _split_exchanges(self.messages)
+        return len(pairs)
+
+    @property
+    def dangling_count(self) -> int:
+        """落单的消息条数（正常情况下是 0；非 0 说明有一次失败留下了孤儿问题）。"""
+        _pairs, dangling = _split_exchanges(self.messages)
+        return len(dangling)
 
     # ---- ① 冻结：只能设一次 ----
 
@@ -151,7 +206,7 @@ class ChatSession:
     # ---- 受保护字段（压缩取不到） ----
 
     def protected(self, policy: ChatPolicy) -> dict:
-        """`always_keep` 声明的字段。**压缩只接受这个函数返回之外的东西处理。**"""
+        """`always_keep` 声明的字段。**压缩只处理这个函数返回之外的东西。**"""
         available = {
             "profile": self.profile,
             "frozen_audit": self._frozen_audit.as_context() if self._frozen_audit else None,
@@ -166,7 +221,7 @@ class ChatSession:
             "session_id": self.session_id,
             "profile": self.profile,
             "pinned": self.pinned,
-            "turns": [asdict(turn) for turn in self.turns],
+            "messages": [asdict(message) for message in self.messages],
             "summary": self.summary,
             "created_at": self.created_at,
             "model_calls": self.model_calls,
@@ -180,7 +235,7 @@ class ChatSession:
             session_id=payload["session_id"],
             profile=payload.get("profile"),
             pinned=payload.get("pinned", ()),
-            turns=[ChatTurn(**turn) for turn in payload.get("turns", [])],
+            messages=[ChatMessage(**item) for item in payload.get("messages", [])],
             summary=payload.get("summary", ""),
             created_at=payload.get("created_at"),
             model_calls=payload.get("model_calls", 0),
@@ -205,42 +260,57 @@ class ChatSession:
 
 @dataclass(frozen=True)
 class ContextState:
-    turns: int
+    exchanges: int
+    messages: int
+    dangling: int
     chars: int
     needs_compaction: bool
     reason: str
 
     def describe(self) -> str:
         flag = "**需要压缩**" if self.needs_compaction else "不需要压缩"
-        return f"对话 {self.turns} 轮 / {self.chars} 字 → {flag}（{self.reason}）"
+        text = f"{self.exchanges} 次问答 / {self.messages} 条消息 / {self.chars} 字 → {flag}"
+        if self.dangling:
+            text += f"（⚠️ 有 {self.dangling} 条落单消息）"
+        return f"{text}（{self.reason}）"
 
 
-def _turns_chars(turns: Sequence[ChatTurn]) -> int:
-    return sum(len(turn.text) for turn in turns)
+def _messages_chars(messages: Sequence[ChatMessage]) -> int:
+    return sum(len(message.text) for message in messages)
 
 
 def context_state(session: ChatSession, policy: ChatPolicy | None = None) -> ContextState:
-    """当前上下文占了多少、要不要压缩。"""
+    """当前上下文占了多少、要不要压缩。**按"次问答"判断。**"""
     policy = policy or CHAT_POLICY
-    turns = len(session.turns)
-    chars = _turns_chars(session.turns) + len(session.summary)
+    pairs, dangling = _split_exchanges(session.messages)
+    exchanges = len(pairs)
+    chars = _messages_chars(session.messages) + len(session.summary)
+
+    def make(needs: bool, reason: str) -> ContextState:
+        return ContextState(
+            exchanges=exchanges,
+            messages=len(session.messages),
+            dangling=len(dangling),
+            chars=chars,
+            needs_compaction=needs,
+            reason=reason,
+        )
 
     if policy.compact_mode == "off":
-        return ContextState(turns, chars, False, "compact_mode=off，按你的设置不压缩")
-
-    if turns > policy.max_turns_before_compact:
-        return ContextState(
-            turns, chars, True, f"{turns} 轮 > 上限 {policy.max_turns_before_compact}"
+        return make(False, "compact_mode=off，按你的设置不压缩")
+    if exchanges > policy.max_exchanges_before_compact:
+        return make(
+            True, f"{exchanges} 次问答 > 上限 {policy.max_exchanges_before_compact}"
         )
     if chars > policy.context_char_budget:
-        return ContextState(turns, chars, True, f"{chars} 字 > 预算 {policy.context_char_budget}")
-    return ContextState(turns, chars, False, "在预算内")
+        return make(True, f"{chars} 字 > 预算 {policy.context_char_budget}")
+    return make(False, "在预算内")
 
 
 @dataclass(frozen=True)
 class CompactReport:
-    compacted_turns: int
-    kept_turns: int
+    compacted_exchanges: int
+    kept_exchanges: int
     summary_chars: int
     mode: str
     truncated: bool
@@ -248,8 +318,8 @@ class CompactReport:
 
     def describe(self) -> str:
         text = (
-            f"压缩 {self.compacted_turns} 轮 → 保留 {self.kept_turns} 轮原文，"
-            f"摘要 {self.summary_chars} 字（{self.mode}）"
+            f"压缩 {self.compacted_exchanges} 次问答 → 保留 {self.kept_exchanges} 次问答原文"
+            f"（{self.mode}）"
         )
         if self.truncated:
             text += "；摘要超长**已截断**（报告里留了标记）"
@@ -257,7 +327,7 @@ class CompactReport:
         return text
 
 
-def _rule_summary(old_turns: Sequence[ChatTurn], policy: ChatPolicy) -> str:
+def _rule_summary(messages: Sequence[ChatMessage], policy: ChatPolicy) -> str:
     """规则压缩：**确定性、免费、可测**。
 
     只做两件事（都不需要"理解"）：
@@ -269,11 +339,11 @@ def _rule_summary(old_turns: Sequence[ChatTurn], policy: ChatPolicy) -> str:
     """
     lines: list[str] = []
     if policy.compact_keep_user_questions:
-        questions = [turn.text for turn in old_turns if turn.role == "user"]
+        questions = [m.text for m in messages if m.role == "user"]
         if questions:
             joined = "；".join(q.strip().replace("\n", " ")[:40] for q in questions[-12:])
             lines.append(f"用户问过：{joined}")
-    answers = [turn.text for turn in old_turns if turn.role == "assistant"]
+    answers = [m.text for m in messages if m.role == "assistant"]
     if answers:
         joined = "；".join(a.strip().replace("\n", " ")[:40] for a in answers[-6:])
         lines.append(f"已答要点：{joined}")
@@ -285,7 +355,6 @@ def _merge_summary(old: str, new: str, limit: int) -> tuple[str, bool]:
     merged = f"{old}\n{new}".strip() if old else new.strip()
     if len(merged) <= limit:
         return merged, False
-    # 保留靠后的（较新的）内容——最近说过的更相关
     kept = merged[-limit:]
     return f"…（更早的摘要已被截断）\n{kept}", True
 
@@ -295,23 +364,29 @@ def compact_turns(
     policy: ChatPolicy | None = None,
     judge: Judge | None = None,
 ) -> CompactReport:
-    """执行一次压缩。**只动 `turns` 与 `summary`。**
+    """执行一次压缩。**只动 `messages` 与 `summary`，而且按"次问答"成对切。**
 
-    受保护字段（`policy.always_keep`）**在这个函数里取不到**——
+    受保护字段（`policy.always_keep`）在这个函数里**取不到**——
     不是"小心别动"，是结构上拿不到。
     """
     policy = policy or CHAT_POLICY
     protected = tuple(session.protected(policy))
 
     if policy.compact_mode == "off":
-        return CompactReport(0, len(session.turns), len(session.summary), "off", False, protected)
+        return CompactReport(0, session.exchange_count, len(session.summary), "off", False, protected)
 
-    keep = policy.keep_recent_turns
-    if len(session.turns) <= keep:
-        return CompactReport(0, len(session.turns), len(session.summary), policy.compact_mode, False, protected)
+    pairs, dangling = _split_exchanges(session.messages)
+    keep = policy.keep_recent_exchanges
 
-    old_turns = session.turns[:-keep]
-    kept_turns = session.turns[-keep:]
+    if len(pairs) <= keep:
+        return CompactReport(
+            0, len(pairs), len(session.summary), policy.compact_mode, False, protected
+        )
+
+    old_pairs = pairs[:-keep]
+    kept_pairs = pairs[-keep:]
+    old_messages = [message for pair in old_pairs for message in pair]
+    kept_messages = [message for pair in kept_pairs for message in pair]
 
     if policy.compact_mode == "model":
         if judge is None:
@@ -319,21 +394,22 @@ def compact_turns(
         prompt = (
             "把下面这段体检解读对话压缩成要点，保留：用户问过什么、给出了什么结论、"
             "有没有未解决的问题。不要新增任何信息。\n\n"
-            + "\n".join(f"[{t.role}] {t.text}" for t in old_turns)
+            + "\n".join(f"[{m.role}] {m.text}" for m in old_messages)
         )
         new_summary = judge.complete(prompt)
         session.model_calls += 1
     else:
-        new_summary = _rule_summary(old_turns, policy)
+        new_summary = _rule_summary(old_messages, policy)
 
     merged, truncated = _merge_summary(session.summary, new_summary, policy.compact_summary_chars)
     session.summary = merged
-    session.turns = list(kept_turns)
+    # 落单的那条（用户问了还没答）**永远保留**，绝不被压掉
+    session.messages = kept_messages + list(dangling)
     session.compactions += 1
 
     return CompactReport(
-        compacted_turns=len(old_turns),
-        kept_turns=len(kept_turns),
+        compacted_exchanges=len(old_pairs),
+        kept_exchanges=len(kept_pairs),
         summary_chars=len(merged),
         mode=policy.compact_mode,
         truncated=truncated,
@@ -351,10 +427,9 @@ def build_context(session: ChatSession, policy: ChatPolicy | None = None) -> str
     policy = policy or CHAT_POLICY
     blocks: list[str] = []
 
-    profile = session.profile
-    if profile:
+    if session.profile:
         blocks.append(
-            "【用户档案】" + "，".join(f"{key}={value}" for key, value in profile.items())
+            "【用户档案】" + "，".join(f"{key}={value}" for key, value in session.profile.items())
         )
     if session.pinned:
         blocks.append("【用户要求记住的事】" + "；".join(session.pinned))
@@ -362,10 +437,10 @@ def build_context(session: ChatSession, policy: ChatPolicy | None = None) -> str
         blocks.append(session.frozen_audit.as_context())
     if session.summary:
         blocks.append(f"【较早对话的摘要】\n{session.summary}")
-    if session.turns:
+    if session.messages:
         blocks.append(
             "【最近的对话】\n"
-            + "\n".join(f"[{turn.role}] {turn.text}" for turn in session.turns)
+            + "\n".join(f"[{message.role}] {message.text}" for message in session.messages)
         )
 
     return "\n\n".join(blocks)
@@ -379,7 +454,11 @@ def chat_reply(
 ) -> str:
     """一轮对话：**先按需压缩 → 组装上下文 → 调模型 → 记录**。
 
-    ⚠️ 压缩发生在"把新问题加进去之前"，所以**当前这一句永远不会被压掉**。
+    ⚠️ 两个刻意的顺序安排：
+
+    1. **压缩发生在加入新问题之前**，所以当前这一句永远不会被压掉
+    2. **模型调用失败时回滚**（撤掉刚加的用户消息）——否则会留下一个孤儿问题，
+       破坏"问答成对"，下次压缩就会把一对问答劈开。**异常照原样抛出去，不静默。**
     """
     policy = policy or CHAT_POLICY
 
@@ -387,13 +466,16 @@ def chat_reply(
     if state.needs_compaction:
         compact_turns(session, policy=policy, judge=judge)
 
-    session.turns.append(ChatTurn(role="user", text=user_text))
-    context = build_context(session, policy)
-    prompt = CHAT_PROMPT.replace("{context}", context)
+    session.messages.append(ChatMessage(role="user", text=user_text))
+    try:
+        prompt = CHAT_PROMPT.replace("{context}", build_context(session, policy))
+        reply = judge.complete(prompt)
+    except Exception:
+        session.messages.pop()  # 回滚：不留孤儿问题
+        raise
 
-    reply = judge.complete(prompt)
     session.model_calls += 1
-    session.turns.append(ChatTurn(role="assistant", text=str(reply)))
+    session.messages.append(ChatMessage(role="assistant", text=str(reply)))
     return str(reply)
 
 
@@ -469,7 +551,6 @@ class SessionStore:
                 stamp = datetime.fromisoformat(updated_at).timestamp()
             except ValueError:
                 continue
-            if stamp < cutoff:
-                if self.delete(session_id):
-                    removed += 1
+            if stamp < cutoff and self.delete(session_id):
+                removed += 1
         return removed

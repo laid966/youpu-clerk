@@ -468,8 +468,8 @@ def cmd_chat(args: argparse.Namespace) -> int:
     print(f"会话：{session.session_id}")
     print(f"上下文策略：{CHAT_POLICY.compact_label}")
     print(
-        f"  保留最近 {CHAT_POLICY.keep_recent_turns} 轮 · "
-        f"{CHAT_POLICY.max_turns_before_compact} 轮后触发压缩 · "
+        f"  保留最近 {CHAT_POLICY.keep_recent_exchanges} 轮 · "
+        f"{CHAT_POLICY.max_exchanges_before_compact} 轮后触发压缩 · "
         f"预算 {CHAT_POLICY.context_char_budget} 字"
     )
     print(f"  留存：{CHAT_POLICY.retention_label}")
@@ -517,9 +517,9 @@ def cmd_chat_budget(args: argparse.Namespace) -> int:
 
     print("对话层策略（改在 agent/chat_policy.py —— 那是你的文件）")
     print()
-    print(f"  保留最近原文      {CHAT_POLICY.keep_recent_turns} 轮")
+    print(f"  保留最近原文      {CHAT_POLICY.keep_recent_exchanges} 轮")
     print(
-        f"  压缩触发          >{CHAT_POLICY.max_turns_before_compact} 轮 "
+        f"  压缩触发          >{CHAT_POLICY.max_exchanges_before_compact} 轮 "
         f"或 >{CHAT_POLICY.context_char_budget} 字"
     )
     print(f"  压缩方式          {CHAT_POLICY.compact_label}")
@@ -548,9 +548,12 @@ def cmd_chat_inspect(args: argparse.Namespace) -> int:
     print(f"会话：{session.session_id}（建于 {session.created_at}）")
     print(f"  {state.describe()}")
     print(
-        f"  轮数 {len(session.turns)} · 摘要 {len(session.summary)} 字 · "
-        f"已压缩 {session.compactions} 次 · 模型调用 {session.model_calls} 次"
+        f"  已完成 {session.exchange_count} 次问答 · 消息 {len(session.messages)} 条 · "
+        f"摘要 {len(session.summary)} 字 · 已压缩 {session.compactions} 次 · "
+        f"模型调用 {session.model_calls} 次"
     )
+    if session.dangling_count:
+        print(f"  ⚠️ 有 {session.dangling_count} 条落单消息（一次失败的调用留下的）")
     frozen = session.frozen_audit
     print(f"  审计结论：{frozen.report_id if frozen else '（未冻结）'}")
     print(f"  受保护字段（不参与压缩）：{list(session.protected(CHAT_POLICY))}")

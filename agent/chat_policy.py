@@ -75,16 +75,28 @@ __all__ = [
 class ChatPolicy:
     """上下文管理的全部策略。**每一项都是判断，不是默认值。**"""
 
+    # ---- 单位约定（先把这件事说清，否则所有数字都是错的）----
+    #
+    # **一轮 = 一次问答（用户问 + 助手答），不是一条消息。**
+    #
+    # 两边的区别会让所有阈值差 2 倍。之所以选"一次问答"：
+    #
+    # 1. **问答是不可分割的语义单元**——保留问题却丢掉答案，用户看不到有用上下文
+    # 2. **消息数可能是奇数**（模型调用失败时只剩用户那句）——
+    #    按"条"保留会把一对问答劈开，留下一个**没有答案的问题**
+    #
+    # 所以字段名里带 `exchange`（次问答），代码里也按**成对**切。
+
     # ---- ① 压缩触发 ----
-    keep_recent_turns: int = 6
-    """压缩时**保留最近几轮原文**。更早的才会被压成摘要。
+    keep_recent_exchanges: int = 3
+    """压缩时**保留最近几次问答的原文**。更早的才会被压成摘要。
 
     太小 → 代词和追问会失去指代对象（"那我要复查吗"里的"那"指什么？）
     太大 → 压缩没意义。
     """
 
-    max_turns_before_compact: int = 12
-    """**超过几轮就触发压缩。** 设得越小越省钱但越容易丢上下文。"""
+    max_exchanges_before_compact: int = 6
+    """**超过几次问答就触发压缩。** 设得越小越省钱但越容易丢上下文。"""
 
     context_char_budget: int = 6000
     """送进模型的上下文字符上限（不含冻结的审计结论）。
@@ -125,12 +137,14 @@ class ChatPolicy:
     """
 
     def __post_init__(self) -> None:
-        if self.keep_recent_turns < 1:
-            raise ValueError("keep_recent_turns 至少是 1——保留 0 轮等于把对话全丢了")
-        if self.max_turns_before_compact < self.keep_recent_turns:
+        if self.keep_recent_exchanges < 1:
             raise ValueError(
-                f"max_turns_before_compact({self.max_turns_before_compact}) "
-                f"不能小于 keep_recent_turns({self.keep_recent_turns})——"
+                "keep_recent_exchanges 至少是 1——保留 0 次问答等于把对话全丢了"
+            )
+        if self.max_exchanges_before_compact < self.keep_recent_exchanges:
+            raise ValueError(
+                f"max_exchanges_before_compact({self.max_exchanges_before_compact}) "
+                f"不能小于 keep_recent_exchanges({self.keep_recent_exchanges})——"
                 "那样一压缩就把刚说过的话也压掉了"
             )
         if self.context_char_budget < 200:
@@ -203,7 +217,8 @@ CHAT_PROMPT = """你是一个体检报告解读助手的对话层。
 # 你要填的地方（TODO）
 # ============================================================================
 
-# TODO(你) ① 把 max_turns_before_compact 调到多少？先跑几条长会话看体验，再定。
+# TODO(你) ① 把 max_exchanges_before_compact 调到多少？先跑几条长会话看体验，再定。
+#            注意单位是**一次问答**（用户问+助手答），不是一条消息。
 # TODO(你) ② always_keep 还要加什么字段？（比如"用户提到的既往病史"要不要单独存？）
 # TODO(你) ③ compact_mode 选哪个？先用 rule 跑通，再考虑要不要换 model。
 # TODO(你) ⑤ session_retention_days 定多少？现在的 0 意味着"一直留着"。
