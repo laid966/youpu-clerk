@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from agent.eval_semantic import build_semantic_cases, evaluate_semantic
@@ -439,6 +440,148 @@ def _all_guardrail_rules() -> tuple:
     return GUARDRAIL_RULES
 
 
+def cmd_chat(args: argparse.Namespace) -> int:
+    """交互式对话：**带上下文管理的对话层**。
+
+    ⚠️ 这一条**会调模型、会花钱**（每轮一次调用；触发压缩时再多一次）。
+    """
+    from agent.chat import ChatSession, FrozenAudit, SessionStore, chat_reply, context_state
+    from agent.chat_policy import CHAT_POLICY
+    from agent.judge import build_judge
+
+    store = SessionStore()
+    session = store.load(args.session_id) or ChatSession(
+        session_id=args.session_id, profile={"sex": args.sex, "age": args.age}
+    )
+
+    if args.audit_json:
+        payload = json.loads(Path(args.audit_json).read_text(encoding="utf-8"))
+        session.freeze_audit(
+            FrozenAudit(
+                report_id=payload["report_id"],
+                summary=payload["summary"],
+                findings=tuple(payload.get("findings", ())),
+                escalated=bool(payload.get("escalated", False)),
+            )
+        )
+
+    print(f"会话：{session.session_id}")
+    print(f"上下文策略：{CHAT_POLICY.compact_label}")
+    print(
+        f"  保留最近 {CHAT_POLICY.keep_recent_turns} 轮 · "
+        f"{CHAT_POLICY.max_turns_before_compact} 轮后触发压缩 · "
+        f"预算 {CHAT_POLICY.context_char_budget} 字"
+    )
+    print(f"  留存：{CHAT_POLICY.retention_label}")
+    if session.frozen_audit is not None:
+        print(f"  已冻结审计结论：{session.frozen_audit.report_id}（只能解释它，不能改）")
+    print()
+    print("命令：/context 看占用 · /compact 手动压缩 · /exit 退出")
+    print()
+
+    judge = build_judge()
+    while True:
+        try:
+            line = input("你> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not line:
+            continue
+        if line in ("/exit", "/quit"):
+            break
+        if line == "/context":
+            print(f"  {context_state(session, CHAT_POLICY).describe()}")
+            print(f"  已压缩 {session.compactions} 次 · 模型调用 {session.model_calls} 次")
+            continue
+        if line == "/compact":
+            from agent.chat import compact_turns
+
+            print(f"  {compact_turns(session, CHAT_POLICY, judge).describe()}")
+            store.save(session)
+            continue
+
+        print()
+        print(f"助手> {chat_reply(session, line, judge, CHAT_POLICY)}")
+        print()
+        store.save(session)
+
+    store.save(session)
+    print(f"会话已保存（删除：python -m agent chat-forget {session.session_id}）")
+    return 0
+
+
+def cmd_chat_budget(args: argparse.Namespace) -> int:
+    """看对话层策略现在怎么配。**改完 `agent/chat_policy.py` 用这个自检。**"""
+    from agent.chat_policy import CHAT_POLICY
+
+    print("对话层策略（改在 agent/chat_policy.py —— 那是你的文件）")
+    print()
+    print(f"  保留最近原文      {CHAT_POLICY.keep_recent_turns} 轮")
+    print(
+        f"  压缩触发          >{CHAT_POLICY.max_turns_before_compact} 轮 "
+        f"或 >{CHAT_POLICY.context_char_budget} 字"
+    )
+    print(f"  压缩方式          {CHAT_POLICY.compact_label}")
+    print(f"  摘要上限          {CHAT_POLICY.compact_summary_chars} 字")
+    print(f"  保留用户提问      {'是' if CHAT_POLICY.compact_keep_user_questions else '否'}")
+    print(f"  永不参与压缩      {list(CHAT_POLICY.always_keep)}")
+    print(f"  会话留存          {CHAT_POLICY.retention_label}")
+    print()
+    print("  查某个会话实际占多少：python -m agent chat-inspect <会话id>")
+    return 0
+
+
+def cmd_chat_inspect(args: argparse.Namespace) -> int:
+    """看一个会话的上下文占用与压缩历史（不花钱）。"""
+    from agent.chat import SessionStore, build_context, context_state
+    from agent.chat_policy import CHAT_POLICY
+
+    store = SessionStore()
+    session = store.load(args.session_id)
+    if session is None:
+        print(f"[x] 没有这个会话：{args.session_id}")
+        print(f"    现有：{list(store.list_ids()) or '（无）'}")
+        return 2
+
+    state = context_state(session, CHAT_POLICY)
+    print(f"会话：{session.session_id}（建于 {session.created_at}）")
+    print(f"  {state.describe()}")
+    print(
+        f"  轮数 {len(session.turns)} · 摘要 {len(session.summary)} 字 · "
+        f"已压缩 {session.compactions} 次 · 模型调用 {session.model_calls} 次"
+    )
+    frozen = session.frozen_audit
+    print(f"  审计结论：{frozen.report_id if frozen else '（未冻结）'}")
+    print(f"  受保护字段（不参与压缩）：{list(session.protected(CHAT_POLICY))}")
+    if session.pinned:
+        print(f"  用户要求记住：{session.pinned}")
+    print()
+    if args.show_context:
+        print(build_context(session, CHAT_POLICY))
+    else:
+        print("  看完整上下文：加 --show-context")
+    return 0
+
+
+def cmd_chat_forget(args: argparse.Namespace) -> int:
+    """删除会话（隐私要求：必须能单独删干净）。"""
+    from agent.chat import SessionStore
+
+    store = SessionStore()
+    if args.all:
+        print(f"已删除全部 {store.delete_all()} 个会话")
+        return 0
+    if not args.session_id:
+        print(f"现有：{list(store.list_ids()) or '（无）'}")
+        print("  删一个：python -m agent chat-forget <会话id>")
+        print("  删全部：python -m agent chat-forget --all")
+        return 2
+    ok = store.delete(args.session_id)
+    print(f"{'已删除' if ok else '没找到'}：{args.session_id}")
+    return 0 if ok else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m agent", description="审计 agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -543,6 +686,36 @@ def build_parser() -> argparse.ArgumentParser:
         "--report", default=str(ROOT / "reports" / "heldout-report.md")
     )
     heldout.set_defaults(func=cmd_heldout)
+
+    chat = subparsers.add_parser(
+        "chat", help="交互式对话（带上下文管理）—— **会调模型、会花钱**"
+    )
+    chat.add_argument("--session-id", default="demo-session")
+    chat.add_argument("--sex", default="male")
+    chat.add_argument("--age", type=int, default=40)
+    chat.add_argument(
+        "--audit-json",
+        default=None,
+        help="冻结的审计结论（JSON: report_id/summary/findings/escalated）—— 对话只能读它",
+    )
+    chat.set_defaults(func=cmd_chat)
+
+    chat_budget = subparsers.add_parser(
+        "chat-budget", help="看对话层策略现在怎么配（不花钱）"
+    )
+    chat_budget.set_defaults(func=cmd_chat_budget)
+
+    chat_inspect = subparsers.add_parser(
+        "chat-inspect", help="看会话的上下文占用（不花钱）"
+    )
+    chat_inspect.add_argument("session_id")
+    chat_inspect.add_argument("--show-context", action="store_true", help="打印完整上下文")
+    chat_inspect.set_defaults(func=cmd_chat_inspect)
+
+    chat_forget = subparsers.add_parser("chat-forget", help="删除会话（隐私）")
+    chat_forget.add_argument("session_id", nargs="?", default=None)
+    chat_forget.add_argument("--all", action="store_true")
+    chat_forget.set_defaults(func=cmd_chat_forget)
 
     return parser
 

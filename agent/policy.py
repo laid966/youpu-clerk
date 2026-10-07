@@ -61,8 +61,8 @@ KNOWN_CATEGORIES = (
 @dataclass(frozen=True)
 class AuditPolicy:
     # ---- 查多少 ----
-    inspect_scope: str = "abnormal_only"
-    max_model_calls_per_artifact: int = 8
+    inspect_scope: str = "all"
+    max_model_calls_per_artifact: int = 12
 
     # ---- 信多少 ----
     accept_model_findings: bool = True

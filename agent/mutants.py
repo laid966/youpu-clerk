@@ -165,13 +165,16 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant(
         mutant_id="M12",
         target="agent/policy.py",
-        description="缺省策略把检查范围从「只查异常」改成「全查」（成本涨 10 倍）",
-        old_snippet='    inspect_scope: str = "abnormal_only"',
-        new_snippet='    inspect_scope: str = "all"',
+        description="缺省策略把检查范围从「全查」缩回「只查异常」（成本降 10 倍，语义层增量归零）",
+        old_snippet='    inspect_scope: str = "all"',
+        new_snippet='    inspect_scope: str = "abnormal_only"',
         expected_killer="(不要求被杀死)",
         invariant=(
             "这是一个**成本旋钮**，刻意留给使用者调（见 docs/10-你的任务.md 的 T5）。"
             "用测试钉死具体取值会阻止正常调整——只要求有测试保证取值合法。"
+            "注意方向：T5 实测 `abnormal_only` 的语义层增量是 +0.0%（见 docs/02-metrics.md §4.2），"
+            "所以现在**缩回 `abnormal_only` 才是坏的方向**——但它依然允许存活，"
+            "因为「该花多少钱买多少召回」本来就该由人按场景决定。"
         ),
         must_kill=False,
     ),
