@@ -7,13 +7,14 @@
 
     config.py      ★作者文件★ 定价 / 免费额度 / 默认授权取值
     bargain.py     议价授权决策 —— engine 适配器（"钱由程序算"的落地点）
-    prompts.py     ★作者文件★ 消息分类与回复起草的提示词（待建）
-    guardrails.py  ★作者文件★ 客服禁语表（待建）
-    db.py          SQLite 持久化：商品/会话/消息/台账/订单/权益（待建）
-    service.py     编排：询价 → 分类 → 决策 → 起草 → 护栏 → 建议 + 记账（待建）
-    demo.py        演示模式：演示店铺 + 5 个模拟买家人设（待建）
-    server.py      FastAPI 工作台 + 静态页面 + SSE（待建）
-    web/           工作台前端（待建，设计基调见 docs/31-UI设计基调.md）
+    db.py          SQLite 持久化：商品/会话/消息/台账/额度/订单骨架
+    templates.py   TemplateJudge 确定性降级：无 key 全链路可跑（演示/CI/模型宕机保命）
+    prompts.py     ★作者文件★ 分类与起草提示词 + 解析器（失败一律降级，绝不猜）
+    guardrails.py  ★作者文件★ 客服禁语词表 + 数字白名单（底价泄露=最高级事故）
+    service.py     编排：询价 → 分类 → 决策 → 起草 → 护栏 → 建议 + 记账
+    demo.py        演示模式：演示店铺 + 5 个双语买家人设 + 逐句剧本（测试锁一致性）
+    server.py      FastAPI 工作台 + 静态托管 + 演示步进 + 支付桩（G2 后激活）
+    web/           工作台前端（占位页已挂；完整 UI 见 docs/31 设计基调）
 
 设计纪律（从 auditkit 继承，测试守着）：
 
