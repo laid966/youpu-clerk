@@ -1,0 +1,117 @@
+# 议价授权域 · clerk-bargain —— 「有谱掌柜」可信 AI 店员的"规章制度"
+#
+# 买家的出价能不能接、还价还到哪一档、什么时候必须转人工，全部由这个文件决定。
+# 这是 auditkit 哲学的产品化：**钱由引擎算（Decimal、四舍五入到分），模型只负责把结论说得像人话。**
+#
+# ★ 这是谁的文件 ★
+# 机制（engine）由协作方搭建；**本文件的取值是作者/店主的判断**：
+#   - 低价甩卖转人工阈值 0.8（BARGAIN-HUMAN-LOWBALL 的 when）
+#   - 让步梯度 0.95 / 0.92 / 0.90（三条 COUNTER 规则的 fee.rate）
+#   - 最多让步 3 次（BARGAIN-FIRM-EXHAUSTED 的 when）
+# 改取值 = 只改本文件，不改任何代码。改完验证：
+#   .venv\Scripts\python.exe -m engine check --domain domain/clerk-bargain/domain.yaml
+#   .venv\Scripts\python.exe -m pytest tests/test_clerk_bargain.py -q
+# 注意：梯度取值同时出现在测试断言里，改梯度要连测试期望一起改——
+# 这是刻意的：**测试断言就是取值的验证纸**，防止"改了配置却没人知道行为变没变"。
+#
+# 调用方契约（facts 由 clerk/bargain.py 提供，派生值用 Decimal 程序计算，绝不来自模型）：
+#   asking_price      挂牌价（元）
+#   buyer_offer       买家本次出价（元）
+#   floor_price       店主底价（元）；商品档案校验保证 floor_price <= asking_price
+#   offer_floor_ratio = buyer_offer / floor_price（保留 4 位小数，ROUND_HALF_UP）
+#   concessions_used  = 本会话对该商品已做出的 kind=="counter" 决策次数（从台账数；
+#                       accept 结束议价不计入，firm/human 也不计入）
+#
+# 不声明 default_verdict 是刻意的：没被规则覆盖的组合 = 规则缺口 = 转人工，绝不编结论。
+
+domain: clerk-bargain
+version: 0.1.0
+note: 议价授权域——决定买家出价能否接受、还价到哪一档、何时转人工。取值为演示默认，店主可按商品覆盖。
+
+verdicts: [accept, counter, firm, human]
+critical_verdicts: [human]
+
+facts:
+  - name: asking_price
+    type: number
+    unit: 元
+    minimum: 0.01
+    maximum: 1000000
+
+  - name: buyer_offer
+    type: number
+    unit: 元
+    minimum: 0.01
+    maximum: 1000000
+
+  - name: floor_price
+    type: number
+    unit: 元
+    minimum: 0.01
+    maximum: 1000000
+
+  - name: offer_floor_ratio
+    type: number
+    minimum: 0
+    maximum: 100
+    boundaries: [0.8]
+
+  - name: concessions_used
+    type: number
+    integer: true
+    minimum: 0
+    maximum: 99
+    boundaries: [0, 1, 2, 3]
+
+rules:
+  - id: BARGAIN-HUMAN-LOWBALL
+    when: 'offer_floor_ratio < 0.8'
+    verdict: human
+    cite: 买家出价低于底价的 80%，超出授权范围，转人工处理
+    priority: 50
+
+  - id: BARGAIN-ACCEPT
+    when: 'buyer_offer >= floor_price'
+    verdict: accept
+    cite: 买家出价已达到您设定的底价，按授权可以成交
+    priority: 40
+
+  - id: BARGAIN-FIRM-EXHAUSTED
+    when: 'concessions_used >= 3'
+    verdict: firm
+    cite: 让步次数已达上限 3 次，不再降价；守住挂牌价沟通或转人工
+    priority: 35
+
+  - id: BARGAIN-COUNTER-T1
+    when: 'concessions_used == 0'
+    verdict: counter
+    cite: 第 1 轮让步：按挂牌价 95% 还价（让步梯度第 1 档）
+    priority: 20
+    fee:
+      form: rate_of_amount
+      rate: 0.95
+      base_fact: asking_price
+
+  - id: BARGAIN-COUNTER-T2
+    when: 'concessions_used == 1'
+    verdict: counter
+    cite: 第 2 轮让步：按挂牌价 92% 还价（让步梯度第 2 档）
+    priority: 20
+    fee:
+      form: rate_of_amount
+      rate: 0.92
+      base_fact: asking_price
+
+  - id: BARGAIN-COUNTER-T3
+    when: 'concessions_used == 2'
+    verdict: counter
+    cite: 第 3 轮让步：按挂牌价 90% 还价（让步梯度第 3 档）
+    priority: 20
+    fee:
+      form: rate_of_amount
+      rate: 0.90
+      base_fact: asking_price
+
+escalate:
+  - when: 'fee_amount < floor_price'
+    reason: 按让步梯度算出的还价低于店主底价，超出授权，转人工
