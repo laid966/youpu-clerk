@@ -78,8 +78,9 @@ CREATE TABLE IF NOT EXISTS decisions(
   judgement_json TEXT,                          -- engine Judgement.to_dict() 全量
   classification_json TEXT NOT NULL,            -- {kind, language, offer}
   reply_text TEXT NOT NULL, guardrail_json TEXT NOT NULL DEFAULT '[]',
-  adopted TEXT,                                 -- NULL|sent|edited|discarded|escalated
-  final_text TEXT, created_at TEXT NOT NULL);
+  adopted TEXT,                                 -- NULL|sent|edited|discarded|escalated（一次性，不许改判）
+  final_text TEXT, day TEXT NOT NULL,           -- day: 上海时区日历日（台账按日查询用）
+  created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS usage_daily(
   token TEXT NOT NULL, day TEXT NOT NULL,       -- day: 2026-11-12（Asia/Shanghai 日历日）
   suggestions_used INTEGER NOT NULL DEFAULT 0,
@@ -95,9 +96,10 @@ CREATE TABLE IF NOT EXISTS orders(              -- pay 骨架，G2 之后激活
 - I1 `concessions_used`（喂给引擎的）= 本会话本商品 `decisions` 里
   `kind=='counter' AND adopted IN ('sent','edited')` 的行数。**discarded 不算**（没真还出去）。
 - I2 `guardrail_json` 非空时，`reply_text` 必须等于安全模板（命中的词不许出现在回复里）。
-- I3 数字白名单：`reply_text` 里出现的价格状数字（`\d+(\.\d{1,2})?` 且带货币语境）只允许来自
-  `{decision.price, item.asking_price}`。**floor_price 永远不许出现在回复里**（泄露底价=事故）。
-  违规 → 整段替换安全模板并记 guardrail。
+- I3 数字白名单：`reply_text` 里出现的价格状数字（货币语境 `¥X`/`X元` 或两位小数裸数字）只允许来自
+  `{decision.price, item.asking_price, classification.offer}`（买家自己的出价可以复述）。
+  **floor_price 永远不许出现在回复里**（泄露底价=最高级事故，规则名 C-FLOOR-LEAK）。
+  违规 → 整段替换安全模板并记 guardrail。安全模板自身必须通过护栏（有测试盯着）。
 - I4 免费额度：`plan=='free'` 且当日 `suggestions_used >= FREE_DAILY_SUGGESTIONS` → 拒绝并 402。
 - I5 每次 `/api/inquiry` 成功都恰好新增 1 行 messages(buyer) + 1 行 decisions；采纳时若卖家
   发送了回复，追加 1 行 messages(seller)。
