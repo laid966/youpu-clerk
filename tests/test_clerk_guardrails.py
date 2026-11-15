@@ -127,3 +127,9 @@ class TestTemplateClassify:
         assert template_classify("Would you take 340?").language == "en"
         assert template_classify("300行不行").language == "zh"
         assert template_classify("ok 300行不行").language == "zh"  # 中文为主
+
+    def test_receipt_message_is_not_bargain(self):
+        # 回归："收"字曾是单字关键词，"收到货了"被误判成议价开口（demo 剧本抓出来的）
+        result = template_classify("收到货了，谢谢老板")
+        assert result.kind == "chitchat"
+        assert result.offer is None

@@ -54,11 +54,16 @@ _PRICE_RE = re.compile(
 )
 
 _AFTERSALE_WORDS = (
-    "退货", "退款", "换货", "坏了", "破损", "有问题", "投诉", "骗",
+    "退货", "退款", "换货", "坏了", "坏的", "破损", "有问题", "投诉", "骗",
+    "用不了", "充不上", "开不了机", "无法使用",
     "refund", "return", "broken", "damaged", "complaint", "scam",
+    "not working", "doesn't work", "won't charge", "defective",
 )
+# 注意：这里曾经放过单字"收"——"收到货了"会被误判成议价（opening）。
+# 教训：中文单字词做关键词几乎必然过宽，至少两字、且躲开高频动词组合。
 _BARGAIN_WORDS = (
-    "刀", "砍", "便宜", "少点", "低点", "优惠", "出不出", "出不", "行不行", "行吗", "收",
+    "刀", "砍", "便宜", "少点", "低点", "优惠", "出不出", "出不", "行不行", "行吗",
+    "我收", "收一个", "求购", "想要",
     "offer", "lowest", "discount", "cheaper", "deal", "would you take", "can you do",
     "best price",
 )
