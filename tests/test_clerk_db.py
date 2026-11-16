@@ -174,3 +174,18 @@ class TestConversations:
         item, conv = _seed(conn)
         db.set_conversation_language(conn, conv["id"], "en")
         assert db.get_conversation(conn, conv["id"])["language"] == "en"
+
+    def test_last_human_signal_surfaces_in_list(self, conn):
+        """卖家优先级信号：最后一条决策是 human 的会话，列表里要亮红灯。"""
+        item, conv = _seed(conn)
+        rows = db.list_conversations(conn, "tok")
+        assert rows[0]["last_human"] is None or rows[0]["last_human"] == 0
+        _add_decision(conn, conv, item, "human", adopted="escalated")
+        rows = db.list_conversations(conn, "tok")
+        assert rows[0]["last_kind"] == "human"
+        assert rows[0]["last_human"] == 1
+        # 后续又有一条普通决策 → 信号回落（只看最后一条）
+        _add_decision(conn, conv, item, "counter", adopted="sent", price="379.05")
+        rows = db.list_conversations(conn, "tok")
+        assert rows[0]["last_kind"] == "counter"
+        assert not rows[0]["last_human"]

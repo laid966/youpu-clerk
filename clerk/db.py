@@ -382,8 +382,17 @@ def get_conversation(conn: sqlite3.Connection, conversation_id: str) -> dict | N
 
 
 def list_conversations(conn: sqlite3.Connection, token: str) -> list[dict]:
+    """会话列表，附带"最后一条决策"的信号位。
+
+    last_human 是给卖家的优先级信号：哪条会话正等着**你**接手（越权/低价甩卖/售后升级）。
+    用子查询而不是 JOIN 全量 decisions：会话数 × 决策数都可能上千，列表只该扫每会话一行。
+    """
     rows = conn.execute(
-        "SELECT * FROM conversations WHERE token = ? ORDER BY updated_at DESC, rowid DESC",
+        "SELECT c.*,"
+        " (SELECT d.kind FROM decisions d WHERE d.conversation_id = c.id ORDER BY d.rowid DESC LIMIT 1) AS last_kind,"
+        " (SELECT d.requires_human_review FROM decisions d WHERE d.conversation_id = c.id"
+        "  ORDER BY d.rowid DESC LIMIT 1) AS last_human"
+        " FROM conversations c WHERE c.token = ? ORDER BY c.updated_at DESC, c.rowid DESC",
         (token,),
     ).fetchall()
     return [dict(r) for r in rows]

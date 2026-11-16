@@ -119,6 +119,7 @@ export default {
     statCounters: "还价",
     statAccepts: "可成交",
     statHumans: "转人工",
+    needHuman: "待人工",
     openThread: "点开左侧会话查看记录",
   },
   report: {

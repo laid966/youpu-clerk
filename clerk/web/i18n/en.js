@@ -117,6 +117,7 @@ export default {
     statCounters: "Counters",
     statAccepts: "Accepts",
     statHumans: "Human",
+    needHuman: "needs you",
     openThread: "Open a conversation on the left",
   },
   report: {

@@ -464,12 +464,14 @@ async function reloadWb() {
 
 function drawWorkbench() {
   const wb = state.wb;
+  const needHuman = wb.conversations.filter((conv) => conv.last_human).length;
   const queue = wb.conversations.map((conv) => {
     const item = wb.items.find((i) => i.id === conv.item_id);
     const alias = IS_MOCK ? (wb.personaNames[conv.buyer_alias] || conv.buyer_alias) : conv.buyer_alias;
     return (
       '<div class="conv-item' + (wb.activeConv === conv.id ? " active" : "") + '" data-act="wb-conv" data-id="' + conv.id + '">' +
-      '<div class="t1"><span class="status-dot ' + (conv.status === "escalated" ? "human" : "open") + '"></span>' + esc(alias) + "</div>" +
+      '<div class="t1"><span class="status-dot ' + (conv.last_human ? "human" : "open") + '"></span>' + esc(alias) +
+      (conv.last_human ? ' <span class="chip bad">' + t("wb.needHuman") + "</span>" : "") + "</div>" +
       '<div class="t2">' + esc(item ? item.title : conv.item_id) + "</div></div>"
     );
   }).join("");
@@ -477,7 +479,8 @@ function drawWorkbench() {
   view.innerHTML =
     (IS_MOCK ? '<div class="mock-banner">' + esc(t("wb.mockBanner")) + "</div>" : "") +
     '<div class="wb-grid">' +
-      '<div class="pane"><div class="pane-head"><span>' + t("wb.queue") + "</span>" +
+      '<div class="pane"><div class="pane-head"><span>' + t("wb.queue") +
+        (needHuman ? ' <span class="chip bad">' + needHuman + " " + t("wb.needHuman") + "</span>" : "") + "</span>" +
         (IS_MOCK ? "" : '<button class="btn small" data-act="wb-newchat">' + t("wb.newChat") + "</button>") + "</div>" +
         '<div class="pane-body">' + (queue || '<div class="empty">' + t("wb.emptyQueue") + "</div>") + "</div></div>" +
 
