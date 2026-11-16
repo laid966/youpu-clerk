@@ -564,6 +564,14 @@ def entitlements(request: Request) -> dict:
     }
 
 
+@app.get("/api/orders")
+def list_orders(request: Request) -> dict:
+    """卖家自己的订单流水：G3 取证、客服对账、以及"我的钱在哪"的透明度。"""
+    token = require_token(request)
+    with get_conn() as conn:
+        return {"orders": db.list_orders(conn, token)}
+
+
 # --------------------------------------------------------------------------- #
 # Machine Pay（A2A · 402 协议）：把「可信议价决策」卖给其他 Agent
 # --------------------------------------------------------------------------- #

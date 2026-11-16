@@ -171,6 +171,17 @@ class TestPayFlow:
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "DEV_NOTIFY_DISABLED"
 
+    def test_orders_list_is_own_only(self, client):
+        """订单流水：只看自己的（G3 取证与对账入口）。"""
+        client.post("/api/pay/order", json={"product_code": "pass30_early"})
+        mine = client.get("/api/orders").json()["orders"]
+        assert len(mine) == 1
+        assert mine[0]["status"] == "created"
+        assert mine[0]["amount"] == "6.90"
+        assert "notify_json" not in mine[0]  # 展示字段白名单，不泄露通知原文
+        theirs = client.get("/api/orders", headers={"X-Clerk-User": "someone-else"}).json()
+        assert theirs["orders"] == []
+
     def test_full_payment_loop_in_dev_mode(self, client, monkeypatch):
         monkeypatch.setenv("CLERK_PAY_DEV", "1")
         order = client.post("/api/pay/order", json={"product_code": "pass30_early"}).json()["order"]

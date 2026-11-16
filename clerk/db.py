@@ -598,3 +598,13 @@ def get_machine_fulfillment(conn: sqlite3.Connection, trade_no: str) -> dict | N
         "SELECT * FROM machine_fulfillments WHERE trade_no = ?", (trade_no,)
     ).fetchone()
     return dict(row) if row else None
+
+
+def list_orders(conn: sqlite3.Connection, token: str, limit: int = 100) -> list[dict]:
+    """卖家自己的订单流水（透明度 + G3 取证 + 客服对账用）。只返回展示字段，不含 notify 原文。"""
+    rows = conn.execute(
+        "SELECT id, out_trade_no, product_code, amount, status, created_at, paid_at"
+        " FROM orders WHERE token = ? ORDER BY rowid DESC LIMIT ?",
+        (token, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
