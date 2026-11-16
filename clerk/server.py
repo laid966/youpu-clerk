@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import clerk.db as db
-from clerk import config, demo, machine_pay, pay, pay_vibe, service
+from clerk import bridge, config, demo, machine_pay, pay, pay_vibe, service
 from clerk.bargain import (
     BargainError,
     BargainFacts,
@@ -120,6 +120,7 @@ app.add_exception_handler(db.DbError, _simple_handler(400, "DB_REJECTED"))
 app.add_exception_handler(demo.DemoError, _simple_handler(400, "DEMO_ERROR"))
 app.add_exception_handler(BargainError, _simple_handler(400, "BARGAIN_ERROR"))
 app.add_exception_handler(pay.PayError, _simple_handler(400, "PAY_REJECTED"))
+app.add_exception_handler(bridge.BridgeError, _simple_handler(400, "BRIDGE_ERROR"))
 
 
 # --------------------------------------------------------------------------- #
@@ -218,6 +219,34 @@ class PayNotifyRequest(BaseModel):
 
 class PayQueryRequest(BaseModel):
     out_trade_no: str
+
+
+class BridgeInboxRequest(BaseModel):
+    platform: str
+    conv_key: str
+    message: str
+    buyer_alias: str = "买家"
+    language: str | None = None
+
+
+class BridgeLinkRequest(BaseModel):
+    bridge_conv_id: str
+    item_id: str
+
+
+class BridgeSuggestRequest(BaseModel):
+    bridge_conv_id: str
+
+
+class BridgeSendRequest(BaseModel):
+    bridge_conv_id: str
+    body: str
+    decision_id: str | None = None
+
+
+class BridgeAckRequest(BaseModel):
+    command_id: str
+    status: str
 
 
 # --------------------------------------------------------------------------- #
@@ -660,6 +689,112 @@ def agent_bargain(payload: AgentBargainRequest, request: Request):
         "trade_no": trade_no,
         "decision": decision.to_dict(),
     }
+
+
+# --------------------------------------------------------------------------- #
+# 桥接层：扩展搬消息进来（inbox）/ 卖家在本站发出去（outbox+ack）
+# --------------------------------------------------------------------------- #
+
+
+@app.post("/api/bridge/inbox")
+def bridge_inbox(payload: BridgeInboxRequest, request: Request) -> dict:
+    token = require_token(request)
+    with get_conn() as conn:
+        return bridge.inbox(
+            conn,
+            token=token,
+            platform=payload.platform,
+            conv_key=payload.conv_key,
+            message=payload.message,
+            buyer_alias=payload.buyer_alias,
+            language=payload.language,
+        )
+
+
+@app.get("/api/bridge/conversations")
+def bridge_conversations(request: Request) -> dict:
+    token = require_token(request)
+    with get_conn() as conn:
+        return {"conversations": bridge.list_bridge_conversations(conn, token)}
+
+
+@app.get("/api/bridge/conversations/{bridge_conv_id}")
+def bridge_conversation(bridge_conv_id: str, request: Request) -> dict:
+    token = require_token(request)
+    with get_conn() as conn:
+        conv = bridge.get_bridge_conversation(conn, token, bridge_conv_id)
+        if conv is None:
+            raise bridge.BridgeError(f"桥接会话不存在：{bridge_conv_id}")
+        linked = None
+        if conv["linked_conversation_id"]:
+            linked = db.get_conversation(conn, conv["linked_conversation_id"])
+        return {
+            "bridge": conv,
+            "messages": bridge.bridge_messages(conn, bridge_conv_id),
+            "linked_conversation": linked,
+        }
+
+
+@app.post("/api/bridge/link")
+def bridge_link(payload: BridgeLinkRequest, request: Request) -> dict:
+    token = require_token(request)
+    with get_conn() as conn:
+        return bridge.link_item(conn, token=token, bridge_conv_id=payload.bridge_conv_id, item_id=payload.item_id)
+
+
+@app.post("/api/bridge/suggest")
+def bridge_suggest(payload: BridgeSuggestRequest, request: Request) -> dict:
+    """对桥接会话里**最后一条买家消息**出建议（消息已入库，不重复插入）。"""
+    token = require_token(request)
+    with get_conn() as conn:
+        bconv = bridge.get_bridge_conversation(conn, token, payload.bridge_conv_id)
+        if bconv is None:
+            raise bridge.BridgeError(f"桥接会话不存在：{payload.bridge_conv_id}")
+        if not bconv["linked_conversation_id"]:
+            raise bridge.BridgeError("先关联商品档案再要建议——决策要挂在商品授权上")
+        linked = db.get_conversation(conn, bconv["linked_conversation_id"])
+        messages = db.get_conversation_messages(conn, linked["id"])
+        last_buyer = next((m for m in reversed(messages) if m["direction"] == "buyer"), None)
+        if last_buyer is None:
+            raise bridge.BridgeError("这个会话里还没有买家消息")
+        return service.suggest(
+            token=token,
+            item_id=linked["item_id"],
+            message=last_buyer["body"],
+            conversation_id=linked["id"],
+            source="extension",
+            judge=resolve_judge(),
+            conn=conn,
+            existing_buyer_message_id=last_buyer["id"],
+        )
+
+
+@app.post("/api/bridge/send")
+def bridge_send(payload: BridgeSendRequest, request: Request) -> dict:
+    token = require_token(request)
+    with get_conn() as conn:
+        return bridge.enqueue_send(
+            conn,
+            token=token,
+            bridge_conv_id=payload.bridge_conv_id,
+            body=payload.body,
+            decision_id=payload.decision_id,
+        )
+
+
+@app.get("/api/bridge/outbox")
+def bridge_outbox(request: Request) -> dict:
+    """扩展轮询入口：只返回未过期 pending 命令。"""
+    token = require_token(request)
+    with get_conn() as conn:
+        return {"commands": bridge.pending_commands(conn, token)}
+
+
+@app.post("/api/bridge/ack")
+def bridge_ack(payload: BridgeAckRequest, request: Request) -> dict:
+    token = require_token(request)
+    with get_conn() as conn:
+        return bridge.ack_command(conn, token=token, command_id=payload.command_id, status=payload.status)
 
 
 # --------------------------------------------------------------------------- #

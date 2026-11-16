@@ -154,6 +154,34 @@ CREATE TABLE IF NOT EXISTS machine_fulfillments(
   amount TEXT NOT NULL,
   created_at TEXT NOT NULL);
 
+CREATE TABLE IF NOT EXISTS bridge_conversations(
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  conv_key TEXT NOT NULL,
+  buyer_alias TEXT NOT NULL DEFAULT '买家',
+  language TEXT NOT NULL DEFAULT 'zh',
+  linked_conversation_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(token, platform, conv_key));
+
+CREATE TABLE IF NOT EXISTS bridge_messages(
+  id TEXT PRIMARY KEY,
+  bridge_conv_id TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS bridge_commands(
+  id TEXT PRIMARY KEY,
+  bridge_conv_id TEXT NOT NULL,
+  body TEXT NOT NULL,
+  decision_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  acked_at TEXT);
+
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_conv ON decisions(conversation_id, item_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_day ON decisions(day);

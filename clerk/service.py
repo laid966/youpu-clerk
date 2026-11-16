@@ -126,11 +126,12 @@ def suggest(
     source: str = "paste",
     judge: Any = None,
     conn: sqlite3.Connection | None = None,
+    existing_buyer_message_id: str | None = None,
 ) -> dict:
     """处理一条买家消息，返回契约 §3 的 Suggestion dict。
 
-    只有走到 ⑤record 才消耗额度：前面任何一步抛错（商品不存在、额度已尽），
-    台账和额度都不动——**失败不留半截账**。
+    existing_buyer_message_id：桥接模式专用——买家消息已由 bridge.inbox 落库，
+    不再重复插入，直接对该消息出建议（台账的 message_id 指向同一条消息，线程不分裂）。
     """
     if not message or not message.strip():
         raise ClerkError("message 不能为空")
@@ -164,7 +165,10 @@ def suggest(
         reply = _draft(message, item, classification, decision, judge, trace)
         reply, hits = _guard(reply, item, classification, decision, trace)
 
-        message_id = db.add_message(conn, conv["id"], "buyer", message, classification.language)
+        if existing_buyer_message_id is not None:
+            message_id = existing_buyer_message_id
+        else:
+            message_id = db.add_message(conn, conv["id"], "buyer", message, classification.language)
         suggestion_id = db.add_decision(
             conn,
             conversation_id=conv["id"],

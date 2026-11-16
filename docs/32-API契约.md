@@ -201,7 +201,30 @@ POST /api/agent/bargain {asking_price, buyer_offer, floor_price?, concessions_us
 资源标识：`clerk://agent/bargain-decision`；单价 `config.MACHINE_PAY_PRICE`（默认 ¥0.01/次，★作者取值★）。
 凭证：`MACHINE_PAY_SELLER_ID / SELLER_APP_ID / SERVICE_ID`（签名复用 `ALIPAY_PRIVATE_KEY`）。
 
-## 6. 验收（集成时 Lead 按此清单跑）
+## 6. 桥接层（clerk/bridge.py）——"一个网站解决一切"的传输协议
+
+卖家在本站完成全部工作；闲鱼页面退化为扩展执行的"运输管"。
+
+```
+POST /api/bridge/inbox   {platform, conv_key, message, buyer_alias?, language?} → {bridge_conv_id, message_id}
+GET  /api/bridge/conversations            → 队列（含 last_message / pending_sends / linked_conversation_id）
+GET  /api/bridge/conversations/{id}       → {bridge, messages, linked_conversation}
+POST /api/bridge/link    {bridge_conv_id, item_id} → {conversation_id, already}   # 幂等；把已有买家消息播种进普通会话
+POST /api/bridge/suggest {bridge_conv_id} → Suggestion                            # 复用最后一条买家消息，不重复插入
+POST /api/bridge/send    {bridge_conv_id, body, decision_id?} → {command_id, status:"pending"}
+GET  /api/bridge/outbox                   → {commands:[未过期 pending]}            # 扩展轮询；>10 分钟自动 expired
+POST /api/bridge/ack     {command_id, status:"acked"|"failed"} → {status, already, adopted}
+```
+
+**三条铁律（tests/test_clerk_bridge.py 逐条盯着）**：
+1. 全部端点 token 作用域，跨 token 不可见（服务器永不碰平台凭据）
+2. **ack 之前决策不记"已发送"**——不存在后台自动发送；acked 且带 decision_id 才闭环台账（重复 ack 幂等）
+3. 桥断不残废：命令 10 分钟过期不堆积；未关联商品时 send/suggest 明确报错而非静默丢弃
+
+已关联会话的新 inbox 消息会**同步进普通会话线程**（线程不分裂是桥接的命）。
+扩展侧（监听 DOM + 执行发送）等 G1 诊断结果落地；服务器半边已就绪。
+
+## 7. 验收（集成时 Lead 按此清单跑）
 
 1. 无 API key 环境：`pytest -q` 全绿；demo bootstrap→step×N 全链路可跑（TemplateJudge）。
 2. I1-I5 各有专门测试；金额字符串正则测试扫全 API 响应。
