@@ -243,7 +243,7 @@ function renderLanding(seq) {
     '<span class="chip ok">✓ ' + t("demo.matchOk") + "</span></div>" +
     '<div class="sg-reply">' + esc(t("mock.reply")) + "</div>" +
     '<div class="cites"><span class="cite-chip">' + esc(t("mock.cite")) + "</span></div>" +
-    '<div class="sg-trace"><summary style="list-style:none;color:var(--text-muted)">' + esc(t("mock.trace")) + "</summary></div>" +
+    '<div class="sg-trace"><span style="color:var(--text-muted)">' + esc(t("mock.trace")) + "</span></div>" +
     "</div>";
 
   view.innerHTML =
@@ -493,7 +493,10 @@ function drawWorkbench() {
 function wbCenter() {
   const wb = state.wb;
   if (IS_MOCK) return mockThread();
-  if (wb.activeConv && wb.thread) return realThread() + pasteBar();
+  if (wb.activeConv && wb.thread) {
+    // 待采纳的那条决策不在历史线程里重复渲染——它正以带按钮的建议卡形式在下面
+    return realThread(wb.pending ? wb.pending.suggestion_id : null) + pasteBar();
+  }
   return newChatForm() + pasteBar();
 }
 
@@ -525,7 +528,7 @@ function pendingCard() {
   });
 }
 
-function realThread() {
+function realThread(skipDecisionId) {
   const wb = state.wb;
   const thread = wb.thread;
   const decisionByMessage = {};
@@ -534,7 +537,7 @@ function realThread() {
     if (message.direction === "seller") return sellerBubble(message.body);
     const decision = decisionByMessage[message.id];
     let html = buyerBubble(message.body, thread.conversation.buyer_alias);
-    if (decision) {
+    if (decision && decision.id !== skipDecisionId) {
       html += suggestionCard(
         {
           decision: decision.kind === "none" ? null : {
