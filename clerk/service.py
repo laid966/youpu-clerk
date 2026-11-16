@@ -123,7 +123,12 @@ def suggest(
     conn = conn if conn is not None else db.open_db()
     try:
         user = db.ensure_user(conn, token)
-        _enforce_quota(conn, user)
+        # 演示模式豁免额度：demo 是给评委和潜在用户看的橱窗，不该被收银台拦住；
+        # 也不计入 usage_daily——额度统计的是真实工作量（这个豁免曾被 17 步全剧本
+        # 抓取实测抓出来：5 个人设连演会在第 11 步撞上 10 条/天的免费墙）
+        is_demo = source == "demo"
+        if not is_demo:
+            _enforce_quota(conn, user)
 
         item = db.get_item(conn, token, item_id)
         if item is None:
@@ -161,7 +166,11 @@ def suggest(
             reply_text=reply,
             guardrail_hits=[hit.to_dict() for hit in hits],
         )
-        used_today = db.bump_usage(conn, token, db.today_shanghai())
+        used_today = (
+            db.get_usage(conn, token, db.today_shanghai())
+            if is_demo
+            else db.bump_usage(conn, token, db.today_shanghai())
+        )
 
         return {
             "suggestion_id": suggestion_id,

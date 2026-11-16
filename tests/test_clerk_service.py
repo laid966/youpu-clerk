@@ -200,6 +200,14 @@ class TestQuota:
             )
         assert db.get_usage(env["conn"], TOKEN, db.today_shanghai()) == 0
 
+    def test_demo_source_is_quota_exempt(self, env, monkeypatch):
+        """演示是橱窗不是生意：demo 豁免额度、不计 usage（17 步全剧本实测抓出的 bug）。"""
+        monkeypatch.setattr(config, "FREE_DAILY_SUGGESTIONS", 1)
+        _suggest(env, "300行不行", source="demo")
+        second = _suggest(env, "290行不行", source="demo")  # 超额也不许 402
+        assert second["decision"]["kind"] == "counter"
+        assert db.get_usage(env["conn"], TOKEN, db.today_shanghai()) == 0
+
 
 class TestGuardrailIntegration:
     def test_floor_leak_is_replaced(self, env):

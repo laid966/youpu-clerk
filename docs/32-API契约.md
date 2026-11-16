@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS orders(              -- pay 骨架，G2 之后激活
   **floor_price 永远不许出现在回复里**（泄露底价=最高级事故，规则名 C-FLOOR-LEAK）。
   违规 → 整段替换安全模板并记 guardrail。安全模板自身必须通过护栏（有测试盯着）。
 - I4 免费额度：`plan=='free'` 且当日 `suggestions_used >= FREE_DAILY_SUGGESTIONS` → 拒绝并 402。
+  **例外：`source=="demo"` 豁免额度且不计入 usage_daily**——演示是橱窗，不该被收银台拦住
+  （实测教训：5 个人设 17 步全剧本连演会在第 11 步撞免费墙）。
 - I5 每次 `/api/inquiry` 成功都恰好新增 1 行 messages(buyer) + 1 行 decisions；采纳时若卖家
   发送了回复，追加 1 行 messages(seller)。
 

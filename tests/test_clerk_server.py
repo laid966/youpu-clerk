@@ -44,10 +44,15 @@ class TestHealthAndStatic:
         assert body["judge_mode"] == "template"
         assert body["languages"] == ["zh", "en"]
 
-    def test_placeholder_page_served(self, client):
-        response = client.get("/")
-        assert response.status_code == 200
-        assert "有谱掌柜" in response.text
+    def test_static_assets_served(self, client):
+        index = client.get("/")
+        assert index.status_code == 200
+        assert "有谱掌柜" in index.text
+        assert "app.js" in index.text
+        for asset in ("/styles.css", "/app.js", "/api.js", "/mock.js", "/i18n/zh.js", "/i18n/en.js"):
+            response = client.get(asset)
+            assert response.status_code == 200, asset
+            assert len(response.content) > 0, asset
 
 
 class TestItemsApi:
