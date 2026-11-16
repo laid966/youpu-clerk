@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import clerk.db as db
-from clerk import config, demo, service
+from clerk import config, demo, pay, service
 from clerk.bargain import BargainError, default_floor_price, to_money
 from clerk.service import ClerkError, ItemNotFound, QuotaExceeded, SuggestionNotFound
 from clerk.templates import LANGUAGES, TemplateJudge, select_judge
@@ -96,6 +96,7 @@ app.add_exception_handler(ClerkError, _simple_handler(400, "BAD_REQUEST"))
 app.add_exception_handler(db.DbError, _simple_handler(400, "DB_REJECTED"))
 app.add_exception_handler(demo.DemoError, _simple_handler(400, "DEMO_ERROR"))
 app.add_exception_handler(BargainError, _simple_handler(400, "BARGAIN_ERROR"))
+app.add_exception_handler(pay.PayError, _simple_handler(400, "PAY_REJECTED"))
 
 
 # --------------------------------------------------------------------------- #
@@ -180,6 +181,16 @@ class AdoptRequest(BaseModel):
 class DemoStepRequest(BaseModel):
     persona_id: str
     conversation_id: str | None = None
+
+
+class PayOrderRequest(BaseModel):
+    product_code: str
+
+
+class PayNotifyRequest(BaseModel):
+    out_trade_no: str
+    amount: str | float
+    trade_no: str | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -378,27 +389,22 @@ def demo_step(payload: DemoStepRequest) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# 支付（G2 闸门后激活；现在只做诚实的桩）
+# 支付：状态机已上线（clerk/pay.py）；真实渠道等 G2，适配器一换即可
 # --------------------------------------------------------------------------- #
 
 
 @app.get("/api/pay/products")
 def pay_products() -> dict:
-    """定价档位（读 config，★作者文件★取值）。前端付费弹层的数据源。"""
+    """定价档位（价格取值在 clerk/config.py，★作者文件★）。前端付费弹层的数据源。"""
     return {
         "tiers": [
             {
-                "code": "pass30_early",
-                "name_zh": "30 天通行证（早鸟）",
-                "name_en": "30-Day Pass (Early Bird)",
-                "price": str(config.PRICE_30D_EARLY_BIRD),
-            },
-            {
-                "code": "pass30",
-                "name_zh": "30 天通行证",
-                "name_en": "30-Day Pass",
-                "price": str(config.PRICE_30D),
-            },
+                "code": code,
+                "name_zh": product["name_zh"],
+                "name_en": product["name_en"],
+                "price": str(product["price"]),
+            }
+            for code, product in pay.PRODUCTS.items()
         ],
         "free": {
             "daily_suggestions": config.FREE_DAILY_SUGGESTIONS,
@@ -408,23 +414,46 @@ def pay_products() -> dict:
 
 
 @app.post("/api/pay/order")
-def pay_order(request: Request) -> JSONResponse:
-    return _error_response(
-        501,
-        "PAY_NOT_INTEGRATED",
-        "支付通道接入中（G2 闸门：个人签约条件确认后立即接入 Vibe Pay）",
-    )
+def pay_order(payload: PayOrderRequest, request: Request) -> dict:
+    """创建订单。payment 字段是适配器的输出——现在是 FakeAdapter：
+    联调环境给模拟入口，生产环境如实说"通道接入中"。**不假装能收款。**"""
+    token = require_token(request)
+    with get_conn() as conn:
+        order = pay.create_order(conn, token, payload.product_code)
+    return {"order": order, "payment": pay.get_adapter().create_payment(order)}
+
+
+@app.post("/api/pay/notify-dev")
+def pay_notify_dev(payload: PayNotifyRequest) -> Any:
+    """联调回调：只在 CLERK_PAY_DEV=1 时工作。
+
+    生产环境未签名回调一律 403——这条入口永远不能成为"白嫖权益"的后门。
+    G2 之后真实异步通知走 VibePayAdapter.verify_notify（验签），状态机不变。
+    """
+    if not pay.dev_mode():
+        return _error_response(
+            403,
+            "DEV_NOTIFY_DISABLED",
+            "未签名回调入口在生产环境关闭；真实支付回调将在 G2 签约后以验签形式接入",
+        )
+    with get_conn() as conn:
+        return pay.handle_paid_notification(
+            conn,
+            out_trade_no=payload.out_trade_no,
+            amount=payload.amount,
+            trade_no=payload.trade_no,
+            raw={"via": "notify-dev"},
+        )
 
 
 @app.get("/api/entitlements/me")
 def entitlements(request: Request) -> dict:
     token = require_token(request)
     with get_conn() as conn:
-        user = db.ensure_user(conn, token)
+        entitlement_data = pay.entitlement(conn, token)
         used = db.get_usage(conn, token, db.today_shanghai())
     return {
-        "plan": user["plan"],
-        "expires_at": user["plan_expires_at"],
+        **entitlement_data,
         "quota": {"used_today": used, "free_limit": config.FREE_DAILY_SUGGESTIONS},
     }
 

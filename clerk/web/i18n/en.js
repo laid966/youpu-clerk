@@ -149,6 +149,12 @@ export default {
     paidF4: "Cross-border bilingual service",
     buy: "Upgrade",
     payPending: "Payment channel wiring in progress (gate G2) — one-click checkout lands with Alipay Vibe Pay integration",
+    orderCreated: "Order created",
+    orderNo: "Order No.",
+    amount: "Amount",
+    simulate: "Simulate payment (dev channel)",
+    paidOk: "Payment received — pass activated",
+    channelPending: "Real payment channel wiring in progress (gate G2) — Alipay checkout lands after signing",
     quotaNote: "Quota resets on the Shanghai calendar day. Demo mode never consumes quota.",
   },
   errors: {

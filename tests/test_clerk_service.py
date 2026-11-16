@@ -186,7 +186,7 @@ class TestQuota:
         _suggest(env, "290行不行")
         with pytest.raises(QuotaExceeded) as excinfo:
             _suggest(env, "280行不行")
-        assert excinfo.value.pricing["price_30d"] == "9.9"
+        assert excinfo.value.pricing["price_30d"] == "9.90"
 
     def test_quota_not_consumed_on_failure(self, env, monkeypatch):
         monkeypatch.setattr(config, "FREE_DAILY_SUGGESTIONS", 2)

@@ -773,7 +773,7 @@ function pricingBody(products) {
         "<li>" + esc(t("pricing.paidF2", { n: 50 })) + "</li>" +
         "<li>" + esc(t("pricing.paidF3")) + "</li>" +
         "<li>" + esc(t("pricing.paidF4")) + "</li></ul>" +
-        '<button class="btn primary" data-act="buy">' + esc(t("pricing.buy")) + "</button></div>" +
+        '<button class="btn primary" data-act="buy" data-code="pass30_early">' + esc(t("pricing.buy")) + "</button></div>" +
     "</div>" +
     '<p class="hint" style="margin-top:16px">' + esc(t("pricing.quotaNote")) + "</p>"
   );
@@ -945,9 +945,40 @@ document.addEventListener("click", async (event) => {
     });
     return;
   }
-  if (act === "buy") { toast(t("pricing.payPending")); return; }
+  if (act === "buy") { buyFlow(actor.dataset.code || "pass30_early"); return; }
+  if (act === "pay-sim") { paySimulate(actor.dataset.no, actor.dataset.amount); return; }
   if (act === "card-download") { downloadReportCard(); return; }
 });
+
+async function buyFlow(productCode) {
+  try {
+    const result = await api.payOrder(productCode);
+    const payment = result.payment || {};
+    openModal(
+      "<h3 style=\"margin:0 0 14px\">" + esc(t("pricing.orderCreated")) + "</h3>" +
+      '<div class="kv"><span>' + esc(t("pricing.orderNo")) + '</span><span class="v" style="font-family:var(--font-num)">' + esc(result.order.out_trade_no) + "</span></div>" +
+      '<div class="kv"><span>' + esc(t("pricing.amount")) + '</span><span class="v" style="font-family:var(--font-num)">' + fmtMoney(result.order.amount) + "</span></div>" +
+      '<p class="hint" style="margin:12px 0">' + esc(payment.instructions || t("pricing.channelPending")) + "</p>" +
+      (payment.dev
+        ? '<button class="btn primary" data-act="pay-sim" data-no="' + esc(result.order.out_trade_no) + '" data-amount="' + esc(result.order.amount) + '">' + esc(t("pricing.simulate")) + "</button>"
+        : "")
+    );
+  } catch (error) {
+    toastErr(error);
+  }
+}
+
+async function paySimulate(outTradeNo, amount) {
+  try {
+    await api.payNotifyDev(outTradeNo, amount);
+    closeModal();
+    toast(t("pricing.paidOk"), "ok");
+    state.wb = null; // 权益变了：工作台状态整体重拉
+    render();
+  } catch (error) {
+    toastErr(error);
+  }
+}
 
 document.addEventListener("input", (event) => {
   if (event.target.id === "floorSlider") {

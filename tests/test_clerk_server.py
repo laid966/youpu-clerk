@@ -134,7 +134,7 @@ class TestQuotaWall:
         assert second.status_code == 402
         body = second.json()["error"]
         assert body["code"] == "QUOTA_EXCEEDED"
-        assert body["pricing"]["price_30d"] == "9.9"
+        assert body["pricing"]["price_30d"] == "9.90"  # 金额纪律：两位小数，处处一致
 
     def test_entitlements_report_quota(self, client):
         item = _create_item(client)
@@ -144,16 +144,60 @@ class TestQuotaWall:
         assert body["quota"]["used_today"] == 1
 
 
-class TestPayStub:
+class TestPayFlow:
     def test_products_lists_tiers(self, client):
         body = client.get("/api/pay/products").json()
         codes = {tier["code"] for tier in body["tiers"]}
         assert codes == {"pass30", "pass30_early"}
+        for tier in body["tiers"]:
+            assert db.MONEY_RE.match(tier["price"]), tier  # 金额纪律延伸到定价 API
 
-    def test_order_is_honest_501(self, client):
-        response = client.post("/api/pay/order")
-        assert response.status_code == 501
-        assert response.json()["error"]["code"] == "PAY_NOT_INTEGRATED"
+    def test_order_created_with_honest_payment_info(self, client):
+        body = client.post("/api/pay/order", json={"product_code": "pass30_early"}).json()
+        assert body["order"]["status"] == "created"
+        assert body["order"]["amount"] == "6.90"
+        assert body["payment"]["channel"] == "fake"  # 不假装接了真实渠道
+
+    def test_unknown_product_rejected(self, client):
+        response = client.post("/api/pay/order", json={"product_code": "gold"})
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "PAY_REJECTED"
+
+    def test_dev_notify_closed_by_default(self, client):
+        """生产安全线：CLERK_PAY_DEV 未设置时，未签名回调入口必须 403。"""
+        response = client.post(
+            "/api/pay/notify-dev", json={"out_trade_no": "YPWHATEVER", "amount": "6.90"}
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "DEV_NOTIFY_DISABLED"
+
+    def test_full_payment_loop_in_dev_mode(self, client, monkeypatch):
+        monkeypatch.setenv("CLERK_PAY_DEV", "1")
+        order = client.post("/api/pay/order", json={"product_code": "pass30_early"}).json()["order"]
+
+        paid = client.post(
+            "/api/pay/notify-dev",
+            json={"out_trade_no": order["out_trade_no"], "amount": order["amount"]},
+        )
+        assert paid.status_code == 200
+        assert paid.json()["already"] is False
+
+        replayed = client.post(
+            "/api/pay/notify-dev",
+            json={"out_trade_no": order["out_trade_no"], "amount": order["amount"]},
+        )
+        assert replayed.json()["already"] is True  # HTTP 层重放同样幂等
+
+        entitlements = client.get("/api/entitlements/me").json()
+        assert entitlements["plan"] == "paid30"
+        assert entitlements["active"] is True
+
+        # 付费后额度墙放行（FREE=0 也拦不住）
+        monkeypatch.setattr(config, "FREE_DAILY_SUGGESTIONS", 0)
+        item = _create_item(client)
+        inquiry = client.post("/api/inquiry", json={"item_id": item["id"], "message": "300行不行"})
+        assert inquiry.status_code == 200
+        assert inquiry.json()["decision"]["kind"] == "counter"
 
 
 class TestDemoEndpoints:

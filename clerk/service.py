@@ -28,8 +28,8 @@ import time
 from decimal import Decimal
 from typing import Any
 
-from clerk import config, db
-from clerk.bargain import BargainDecision, BargainError, BargainFacts, decide_bargain
+from clerk import config, db, pay
+from clerk.bargain import BargainDecision, BargainError, BargainFacts, decide_bargain, to_money
 from clerk.guardrails import scan_all
 from clerk.prompts import (
     build_classify_prompt,
@@ -85,8 +85,8 @@ class QuotaExceeded(ClerkError):
         self.used = used
         self.limit = limit
         self.pricing = {
-            "price_30d": str(config.PRICE_30D),
-            "early_bird": str(config.PRICE_30D_EARLY_BIRD),
+            "price_30d": str(to_money(config.PRICE_30D)),
+            "early_bird": str(to_money(config.PRICE_30D_EARLY_BIRD)),
         }
 
 
@@ -280,7 +280,9 @@ def daily_report(*, token: str, day: str | None = None, conn: sqlite3.Connection
 
 
 def _enforce_quota(conn: sqlite3.Connection, user: dict) -> None:
-    if user["plan"] != "free":
+    # 付费判定走 pay.plan_is_active：它同时检查 plan 与到期时间——
+    # "plan=paid30 但已过期"必须按免费处理，否则过期用户白嫖（过期检查只有一处，不许各处自己判）
+    if pay.plan_is_active(user):
         return
     used = db.get_usage(conn, user["token"], db.today_shanghai())
     if used >= config.FREE_DAILY_SUGGESTIONS:

@@ -149,6 +149,13 @@ export const api = {
   },
 
   payProducts: () => (IS_MOCK ? Promise.resolve(mock.payProducts) : call("GET", "/api/pay/products")),
+  payOrder: (productCode) => call("POST", "/api/pay/order", { product_code: productCode }),
+  payNotifyDev: (outTradeNo, amount) =>
+    call("POST", "/api/pay/notify-dev", { out_trade_no: outTradeNo, amount }),
+  entitlements: () =>
+    IS_MOCK
+      ? Promise.resolve({ plan: "free", active: false, expires_at: null, quota: { used_today: 0, free_limit: 10 } })
+      : call("GET", "/api/entitlements/me"),
   items: () => (IS_MOCK ? Promise.resolve({ items: mockItems() }) : call("GET", "/api/items")),
   createItem: (payload) => call("POST", "/api/items", payload),
   updateItem: (itemId, payload) => call("PATCH", "/api/items/" + itemId, payload),

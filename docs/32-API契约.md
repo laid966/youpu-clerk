@@ -164,12 +164,22 @@ POST /api/demo/step {persona_id, conversation_id?} → Suggestion + {persona_mes
 - **安全模板**（templates.py，中英各一组，按 decision.kind 选）：护栏命中或 LLM 缺位时的兜底，
   保证"任何决策都有话可说"。
 
-## 5. 支付（G2 闸门后激活，pay.py 归 Lead）
+## 5. 支付（状态机已上线；真实渠道等 G2）
 
-契约占位：`POST /api/pay/order {product_code}` → `{order_id, pay_url|qr}`；
-回调 `POST /api/pay/notify`（验签+幂等，写 orders + 升级 users.plan）；
-`GET /api/entitlements/me` → `{plan, expires_at, quota}`。
-backend 侧只需保证：`users.plan` 从 free 变 paid30 后 I4 立即放行（有测试）。
+已实现（**平台无关**部分，clerk/pay.py + 12 个状态机测试）：
+- `POST /api/pay/order {product_code}` → `{order, payment}`。payment 是适配器输出——
+  现在是 FakeAdapter：dev（`CLERK_PAY_DEV=1`）给联调说明，生产显示"通道接入中"。**不假装能收款。**
+- `POST /api/pay/notify-dev {out_trade_no, amount, trade_no?}` → 幂等状态机：
+  created→paid；重放返回 `already=true`；金额不符（多付少付都算）→ 400 拒绝。
+  **仅 `CLERK_PAY_DEV=1` 时开放，否则 403**——未签名回调在生产上永远是关的。
+- `GET /api/entitlements/me` → `{plan, expires_at, active, quota}`；过期的 paid30 读取时懒惰降级回 free。
+- I4 额度闸口改走 `pay.plan_is_active`（plan + 到期时间一起看；过期付费用户不再放行）。
+- 续期语义：从 max(now, 当前到期) 往后加 30 天，已付天数不被吃掉；退款则整体降回 free（MVP 简化，注释里写明了）。
+
+G2 之后要做的（只换适配器，状态机与测试不动）：
+- `VibePayAdapter.create_payment` → 真实下单链接/二维码
+- `VibePayAdapter.verify_notify` → 验签真实异步通知，生产入口 `/api/pay/notify`
+- 退款回调接入（`handle_refund_notification` 已就绪）
 
 ## 6. 验收（集成时 Lead 按此清单跑）
 

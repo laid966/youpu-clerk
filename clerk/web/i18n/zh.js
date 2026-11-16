@@ -151,6 +151,12 @@ export default {
     paidF4: "跨境双语接待（中买英卖 / 英买中卖）",
     buy: "立即开通",
     payPending: "支付通道接入中（G2 闸门）——接入支付宝 Vibe Pay 后此处一键开通",
+    orderCreated: "订单已创建",
+    orderNo: "订单号",
+    amount: "金额",
+    simulate: "模拟支付成功（联调通道）",
+    paidOk: "支付成功，权益已生效",
+    channelPending: "真实支付通道接入中（G2 闸门）——签约支付宝 Vibe Pay 后，此处将跳转收银台",
     quotaNote: "额度按上海时区日历日重置。演示模式不消耗额度。",
   },
   errors: {
