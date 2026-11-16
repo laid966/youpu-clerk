@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<style>
+  body { width: 300px; margin: 0; font: 13px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #1C1917; background: #FFFFFF; }
+  .head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #E7E5E4; }
+  .mark { width: 24px; height: 24px; border-radius: 7px; background: #1677FF; color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 600; }
+  .head b { font-size: 13.5px; }
+  .body { padding: 12px 14px; display: grid; gap: 10px; }
+  label { font-size: 12px; color: #78716C; display: block; margin-bottom: 3px; }
+  input, select { width: 100%; box-sizing: border-box; border: 1px solid #D6D3D1; border-radius: 6px; padding: 6px 8px; font: inherit; background: #fff; }
+  .row { display: flex; gap: 8px; }
+  button { cursor: pointer; border-radius: 6px; border: 1px solid #D6D3D1; background: #fff; padding: 7px 12px; font: inherit; font-size: 12.5px; }
+  button.primary { flex: 1; background: #1677FF; border-color: #1677FF; color: #fff; }
+  button.link { border: 0; color: #1677FF; padding: 4px 0; background: none; font-size: 12px; }
+  .status { font-size: 11.5px; color: #78716C; min-height: 16px; }
+  .status.bad { color: #DC2626; }
+  .status.ok { color: #16A34A; }
+  .quota { font-size: 11.5px; color: #A8A29E; }
+</style>
+</head>
+<body>
+<div class="head"><span class="mark">谱</span><b>有谱掌柜 · AI 店员助手</b></div>
+<div class="body">
+  <div>
+    <label>工作台地址</label>
+    <input id="apiBase" placeholder="http://127.0.0.1:8100"/>
+  </div>
+  <div>
+    <label>当前商品（建议按它的授权来算）</label>
+    <select id="activeItem"><option value="">加载中…</option></select>
+  </div>
+  <div class="row">
+    <button class="primary" id="save">保存</button>
+    <button id="openWb">打开工作台</button>
+  </div>
+  <div class="status" id="status"></div>
+  <div class="quota" id="quota"></div>
+  <button class="link" id="reload">↻ 重新拉取商品列表</button>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>

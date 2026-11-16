@@ -7,13 +7,16 @@ import mock from "./mock.js";
 export const IS_MOCK = new URLSearchParams(location.search).has("mock");
 
 function makeToken() {
-  let token = localStorage.getItem("clerk.user");
+  // ?token= 用于跨端身份打通：Chrome 扩展的「打开工作台」按钮带着扩展自己的 token
+  // 过来，网页端就沿用同一个身份（商品档案、台账、额度全在一个账户下）。
+  const fromUrl = new URLSearchParams(location.search).get("token");
+  let token = fromUrl || localStorage.getItem("clerk.user");
   if (!token) {
     token = crypto.randomUUID
       ? crypto.randomUUID().replaceAll("-", "")
       : "u" + Date.now().toString(16) + Math.random().toString(16).slice(2);
-    localStorage.setItem("clerk.user", token);
   }
+  localStorage.setItem("clerk.user", token);
   return token;
 }
 export const USER_TOKEN = makeToken();

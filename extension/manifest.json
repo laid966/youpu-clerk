@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "有谱掌柜 · AI 店员助手",
+  "version": "0.1.0",
+  "description": "选中买家消息，一键获取授权内的回复建议。话是 AI 说的，钱是程序算的，每次让步都有据可查。",
+  "permissions": ["contextMenus", "storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "有谱掌柜"
+  }
+}
