@@ -22,7 +22,7 @@ def _seed(conn):
     return item, conv
 
 
-def _add_decision(conn, conv, item, kind, adopted=None, price=None):
+def _add_decision(conn, conv, item, kind, adopted=None, price=None, human_review=False):
     message_id = db.add_message(conn, conv["id"], "buyer", "test")
     decision_id = db.add_decision(
         conn,
@@ -34,7 +34,7 @@ def _add_decision(conn, conv, item, kind, adopted=None, price=None):
         rule_id=None,
         citations=(),
         reasons=(),
-        requires_human_review=False,
+        requires_human_review=human_review,
         judgement=None,
         classification={"kind": "bargain", "language": "zh", "offer": None},
         reply_text="r",
@@ -180,7 +180,7 @@ class TestConversations:
         item, conv = _seed(conn)
         rows = db.list_conversations(conn, "tok")
         assert rows[0]["last_human"] is None or rows[0]["last_human"] == 0
-        _add_decision(conn, conv, item, "human", adopted="escalated")
+        _add_decision(conn, conv, item, "human", adopted="escalated", human_review=True)
         rows = db.list_conversations(conn, "tok")
         assert rows[0]["last_kind"] == "human"
         assert rows[0]["last_human"] == 1
