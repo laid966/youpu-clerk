@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import os
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -54,7 +54,16 @@ __all__ = ["app", "main"]
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
-app = FastAPI(title=config.PRODUCT_NAME, description=config.PRODUCT_TAGLINE)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动预热：单连接建表 + 完成 WAL 切换，把唯一需要排他锁的动作留在流量之前。"""
+    with get_conn():
+        pass
+    yield
+
+
+app = FastAPI(title=config.PRODUCT_NAME, description=config.PRODUCT_TAGLINE, lifespan=lifespan)
 
 # 测试覆盖位：置为 TemplateJudge/FakeJudge 可让全部真实链路测试离线跑。
 # None 时首个请求触发 select_judge()（有 key → DeepSeek+缓存；无 key → TemplateJudge）。

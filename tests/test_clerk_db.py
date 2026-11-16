@@ -163,6 +163,42 @@ class TestLedgerInvariants:
         assert row["token"] == "tok"
 
 
+class TestConcurrency:
+    def test_parallel_writers_survive(self, tmp_path, monkeypatch):
+        """同步端点在线程池里并发写是真实负载形态：8 线程 × 20 次写不许炸。
+
+        没有 WAL+busy_timeout 时这里会偶发 'database is locked'——
+        评审周一个并发点击潮就能触发，所以把它钉成回归测试。
+        """
+        import threading
+
+        monkeypatch.setenv("CLERK_DB", str(tmp_path / "clerk.db"))
+        errors: list[Exception] = []
+
+        def worker(n: int) -> None:
+            try:
+                conn = db.open_db()
+                for i in range(20):
+                    db.ensure_user(conn, f"tok-{n}")
+                    db.bump_usage(conn, f"tok-{n}", "2026-01-01")
+                conn.close()
+            except Exception as exc:  # noqa: BLE001 — 收集起来统一断言
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(n,)) for n in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert errors == [], f"并发写出现错误：{errors[:3]}"
+        conn = db.open_db()
+        try:
+            assert db.get_usage(conn, "tok-0", "2026-01-01") == 20
+        finally:
+            conn.close()
+
+
 class TestConversations:
     def test_conversation_isolated_by_item(self, conn):
         item, conv = _seed(conn)

@@ -201,11 +201,33 @@ function closePanel() {
 }
 
 // 右键菜单触发的结果也走同一个面板
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.type === "youpu-result") {
     if (message.result && !message.result.error) renderSuggestion(message.result);
     else openPanel('<div style="padding:16px;color:#DC2626;font-size:13px;max-width:260px">' +
       esc((message.result && (message.result.message || message.result.error)) || L.error) + "</div>");
+    return;
+  }
+  // 页面诊断（G1 工具）：只读地收集聊天 DOM 的候选结构，供店主复制给开发者判断
+  // "自动监听层"能不能做、选择器怎么写。不修改页面、不读取任何消息内容本身。
+  if (message && message.type === "youpu-diagnose") {
+    const selectors = [
+      "[class*='message']", "[class*='chat']", "[class*='im-']",
+      "[class*='msg']", "[class*='session']", "[class*='conversation']",
+      "iframe",
+    ];
+    const candidates = {};
+    for (const sel of selectors) {
+      try { candidates[sel] = document.querySelectorAll(sel).length; } catch (e) { candidates[sel] = -1; }
+    }
+    const first = document.querySelector("[class*='message'], [class*='chat'], [class*='msg']");
+    sendResponse({
+      url: location.href,
+      title: document.title,
+      candidates,
+      sample: first ? first.outerHTML.slice(0, 400) : null,
+    });
+    return;
   }
 });
 

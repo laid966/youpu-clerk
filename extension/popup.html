@@ -38,6 +38,11 @@
   <div class="status" id="status"></div>
   <div class="quota" id="quota"></div>
   <button class="link" id="reload">↻ 重新拉取商品列表</button>
+  <div style="border-top:1px solid #E7E5E4;padding-top:10px;margin-top:4px">
+    <button class="link" id="diagnose">🩺 页面诊断（在闲鱼网页版打开后点我）</button>
+    <textarea id="diagOut" rows="6" readonly style="display:none;margin-top:6px;font-size:11px;font-family:ui-monospace,Consolas,monospace"></textarea>
+    <button class="link" id="diagCopy" style="display:none">复制诊断结果发给开发者</button>
+  </div>
 </div>
 <script src="popup.js"></script>
 </body>

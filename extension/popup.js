@@ -91,4 +91,26 @@ document.getElementById("reload").addEventListener("click", async () => {
   loadEntitlements();
 });
 
+// 页面诊断（G1）：在闲鱼网页版等目标页面上收集聊天 DOM 的候选结构。
+// 只读、不碰消息内容；产物是给开发者判断"自动监听层"可行性的依据。
+document.getElementById("diagnose").addEventListener("click", async () => {
+  const out = document.getElementById("diagOut");
+  const copyBtn = document.getElementById("diagCopy");
+  out.style.display = "block";
+  out.value = IS_ZH ? "采集中…" : "collecting…";
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const info = await chrome.tabs.sendMessage(tab.id, { type: "youpu-diagnose" });
+    out.value = JSON.stringify(info, null, 1);
+    copyBtn.style.display = "inline-block";
+  } catch (error) {
+    out.value = (IS_ZH ? "采集失败：当前页面没有注入内容脚本（chrome:// 页或扩展商店页不行）。请先打开闲鱼网页版的聊天页面再点诊断。错误：" : "Diagnose failed: content script not injected on this page. Open the Xianyu web chat page first. Error: ") + error;
+  }
+});
+
+document.getElementById("diagCopy").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(document.getElementById("diagOut").value);
+  setStatus(IS_ZH ? "已复制——粘贴给开发者即可" : "Copied — paste it to the developer", "ok");
+});
+
 loadSettings();

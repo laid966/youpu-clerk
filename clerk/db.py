@@ -22,6 +22,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -179,6 +180,22 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     target.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(target)
     conn.row_factory = sqlite3.Row
+    # 顺序有讲究：**busy_timeout 必须先设**。journal_mode 切 WAL 本身需要拿锁，
+    # 若此时 busy_timeout 还是默认的 0，并发首连会当场 "database is locked"
+    # （这个顺序 bug 被并发写回归测试抓了个正着）。
+    # WAL 让读写并发；busy_timeout 把写写竞争变成最多等 5 秒而不是立刻报错。
+    # （journal_mode 是库级持久设置，切过一次后后续连接只是确认，不再需要排他锁。）
+    conn.execute("PRAGMA busy_timeout=5000")
+    # 切 WAL 需要排他锁，而**这次锁获取不走 busy_timeout 等待**（Windows 实测：
+    # 多连接并发首开会互撞出 database is locked）。对策：退避重试；
+    # WAL 是库级持久设置，切过一次后续连接只是确认；
+    # 生产侧 server 启动时还会单连接预热（clerk/server.py lifespan），把切换留在流量之前。
+    for attempt in range(5):
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            break
+        except sqlite3.OperationalError:
+            time.sleep(0.05 * (attempt + 1))
     return conn
 
 
