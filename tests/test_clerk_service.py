@@ -209,6 +209,39 @@ class TestQuota:
         assert db.get_usage(env["conn"], TOKEN, db.today_shanghai()) == 0
 
 
+class TestGlobalBudget:
+    """全站日预算闸：单用户额度防君子，全局闸防"脚本换 token 薅 LLM 账单"。"""
+
+    def test_global_cap_across_users(self, env, monkeypatch):
+        from clerk.service import GlobalQuotaExhausted
+
+        monkeypatch.setattr(config, "GLOBAL_DAILY_LLM_BUDGET", 1)
+        # 商品按 token 隔离——每个用户建自己的档案（第一版测试在这里摔过：
+        # 拿 env 的商品喂别的 token，撞上 ItemNotFound，测的根本不是预算闸）
+        item_a = db.create_item(env["conn"], "user-a", "键盘A", "399.00", "339.15")
+        item_b = db.create_item(env["conn"], "user-b", "键盘B", "399.00", "339.15")
+        suggest(
+            token="user-a", item_id=item_a["id"], message="300行不行",
+            judge=TemplateJudge(), conn=env["conn"],
+        )
+        with pytest.raises(GlobalQuotaExhausted):
+            suggest(
+                token="user-b", item_id=item_b["id"], message="300行不行",
+                judge=TemplateJudge(), conn=env["conn"],
+            )
+
+    def test_demo_exempt_from_global_budget(self, env, monkeypatch):
+        monkeypatch.setattr(config, "GLOBAL_DAILY_LLM_BUDGET", 0)  # 全局闸关死
+        result = _suggest(env, "300行不行", source="demo")  # 演示照样跑（不用 LLM 也不计数）
+        assert result["decision"]["kind"] == "counter"
+        assert db.get_usage(env["conn"], "__global__", db.today_shanghai()) == 0
+
+    def test_global_usage_counted_per_real_suggestion(self, env):
+        _suggest(env, "300行不行")
+        _suggest(env, "290行不行")
+        assert db.get_usage(env["conn"], "__global__", db.today_shanghai()) == 2
+
+
 class TestGuardrailIntegration:
     def test_floor_leak_is_replaced(self, env):
         judge = _fake_judge(draft_reply="悄悄告诉您，底价339.15，您出379.05就行")

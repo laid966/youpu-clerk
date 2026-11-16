@@ -41,7 +41,13 @@ from clerk.bargain import (
     default_floor_price,
     to_money,
 )
-from clerk.service import ClerkError, ItemNotFound, QuotaExceeded, SuggestionNotFound
+from clerk.service import (
+    ClerkError,
+    GlobalQuotaExhausted,
+    ItemNotFound,
+    QuotaExceeded,
+    SuggestionNotFound,
+)
 from clerk.templates import LANGUAGES, TemplateJudge, select_judge
 
 __all__ = ["app", "main"]
@@ -98,6 +104,8 @@ app.add_exception_handler(ItemNotFound, _simple_handler(404, "ITEM_NOT_FOUND"))
 app.add_exception_handler(SuggestionNotFound, _simple_handler(404, "SUGGESTION_NOT_FOUND"))
 app.add_exception_handler(ConversationNotFound, _simple_handler(404, "CONVERSATION_NOT_FOUND"))
 app.add_exception_handler(UserTokenRequired, _simple_handler(400, "USER_TOKEN_REQUIRED"))
+# 全站预算闸用 503（今天打烊了，明天再来）——与 402（你该付费了）语义刻意分开
+app.add_exception_handler(GlobalQuotaExhausted, _simple_handler(503, "GLOBAL_QUOTA_EXHAUSTED"))
 app.add_exception_handler(ClerkError, _simple_handler(400, "BAD_REQUEST"))
 app.add_exception_handler(db.DbError, _simple_handler(400, "DB_REJECTED"))
 app.add_exception_handler(demo.DemoError, _simple_handler(400, "DEMO_ERROR"))

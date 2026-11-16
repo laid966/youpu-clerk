@@ -47,6 +47,8 @@ from clerk.templates import (
 
 __all__ = [
     "ClerkError",
+    "GLOBAL_USAGE_TOKEN",
+    "GlobalQuotaExhausted",
     "ItemNotFound",
     "QuotaExceeded",
     "SuggestionNotFound",
@@ -57,6 +59,9 @@ __all__ = [
 ]
 
 SOURCES = ("paste", "extension", "demo")
+
+#: 全局预算在 usage_daily 表里挂在这个虚拟 token 下（真实用户 token 是 hex，不会撞车）
+GLOBAL_USAGE_TOKEN = "__global__"
 
 _ENGINE_KINDS = ("accept", "counter", "firm", "human")
 
@@ -88,6 +93,19 @@ class QuotaExceeded(ClerkError):
             "price_30d": str(to_money(config.PRICE_30D)),
             "early_bird": str(to_money(config.PRICE_30D_EARLY_BIRD)),
         }
+
+
+class GlobalQuotaExhausted(ClerkError):
+    """全站当日预算用尽（防"换 token 薅 LLM 账单"的最后一道闸）。
+
+    与 QuotaExceeded 刻意区分：那个是"你该付费了"（402，营销时刻），
+    这个是"今天全站打烊了"（503，成本保护）——语义不同，状态码也不同。
+    """
+
+    def __init__(self, used: int, limit: int) -> None:
+        super().__init__(f"今日全站服务额度已用完（{used}/{limit}），明天再来；演示模式不受影响")
+        self.used = used
+        self.limit = limit
 
 
 def _ms(started: float) -> int:
@@ -129,6 +147,7 @@ def suggest(
         is_demo = source == "demo"
         if not is_demo:
             _enforce_quota(conn, user)
+            _enforce_global_budget(conn)
 
         item = db.get_item(conn, token, item_id)
         if item is None:
@@ -166,11 +185,12 @@ def suggest(
             reply_text=reply,
             guardrail_hits=[hit.to_dict() for hit in hits],
         )
-        used_today = (
-            db.get_usage(conn, token, db.today_shanghai())
-            if is_demo
-            else db.bump_usage(conn, token, db.today_shanghai())
-        )
+        if is_demo:
+            used_today = db.get_usage(conn, token, db.today_shanghai())
+        else:
+            used_today = db.bump_usage(conn, token, db.today_shanghai())
+            # 全局预算同步计数：单用户额度防君子，全局闸防脚本换 token 薅账单
+            db.bump_usage(conn, GLOBAL_USAGE_TOKEN, db.today_shanghai())
 
         return {
             "suggestion_id": suggestion_id,
@@ -287,6 +307,13 @@ def _enforce_quota(conn: sqlite3.Connection, user: dict) -> None:
     used = db.get_usage(conn, user["token"], db.today_shanghai())
     if used >= config.FREE_DAILY_SUGGESTIONS:
         raise QuotaExceeded(used, config.FREE_DAILY_SUGGESTIONS)
+
+
+def _enforce_global_budget(conn: sqlite3.Connection) -> None:
+    """全站当日总量闸。付费用户也计入（保护的是 LLM 成本，不是营销额度）。"""
+    used = db.get_usage(conn, GLOBAL_USAGE_TOKEN, db.today_shanghai())
+    if used >= config.GLOBAL_DAILY_LLM_BUDGET:
+        raise GlobalQuotaExhausted(used, config.GLOBAL_DAILY_LLM_BUDGET)
 
 
 def _classify(message: str, judge: Any, trace: list[dict]) -> Classification:

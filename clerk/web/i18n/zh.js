@@ -162,6 +162,7 @@ export default {
   },
   errors: {
     QUOTA_EXCEEDED: "今日免费额度用完了",
+    GLOBAL_QUOTA_EXHAUSTED: "今日全站额度已用完，明天再来吧（演示模式不受影响）",
     ITEM_NOT_FOUND: "商品档案不存在",
     SUGGESTION_NOT_FOUND: "这条建议不存在",
     DEMO_ERROR: "剧本走完了或人设不存在",

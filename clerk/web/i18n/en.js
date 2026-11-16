@@ -160,6 +160,7 @@ export default {
   },
   errors: {
     QUOTA_EXCEEDED: "Daily free quota used up",
+    GLOBAL_QUOTA_EXHAUSTED: "Site-wide daily quota reached — back tomorrow (demo mode unaffected)",
     ITEM_NOT_FOUND: "Item profile not found",
     SUGGESTION_NOT_FOUND: "Suggestion not found",
     DEMO_ERROR: "Script finished or persona not found",

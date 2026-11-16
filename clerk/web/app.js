@@ -905,7 +905,12 @@ document.addEventListener("click", async (event) => {
     renderPlayer();
     return;
   }
-  if (act === "demo-back") { state.demo.pid = null; return; } // hash 导航接管
+  if (act === "demo-back") {
+    // 必须显式重渲染：已经在 #/demo 上，点同 hash 链接不会触发 hashchange
+    state.demo.pid = null;
+    renderPersonaGrid();
+    return;
+  }
   if (act === "demo-next") { demoNext(); return; }
   if (act === "demo-restart") {
     state.demo = Object.assign({}, state.demo, { conv: null, steps: [], busy: false });
