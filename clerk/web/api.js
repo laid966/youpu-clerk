@@ -152,6 +152,7 @@ export const api = {
   payOrder: (productCode) => call("POST", "/api/pay/order", { product_code: productCode }),
   payNotifyDev: (outTradeNo, amount) =>
     call("POST", "/api/pay/notify-dev", { out_trade_no: outTradeNo, amount }),
+  payQuery: (outTradeNo) => call("POST", "/api/pay/query", { out_trade_no: outTradeNo }),
   entitlements: () =>
     IS_MOCK
       ? Promise.resolve({ plan: "free", active: false, expires_at: null, quota: { used_today: 0, free_limit: 10 } })

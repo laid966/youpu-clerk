@@ -33,3 +33,8 @@ pytest==9.1.1
 # ---- Web 服务（审计结果的展示与流式进度）----
 fastapi==0.142.2
 uvicorn==0.54.0
+
+# ---- 支付通道（clerk/pay_vibe.py：Vibe Pay · AI网页应用收款）----
+cryptography==50.0.2               # RSA2（SHA256withRSA）签名与验签
+httpx==0.28.1                      # 调支付宝网关（原本就在依赖树里，这里升为直接依赖）
+python-multipart==0.0.21           # 支付宝异步通知是 form POST——Starlette 解析表单必需（测试抓出来的真依赖）

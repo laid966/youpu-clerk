@@ -127,7 +127,16 @@ class FakeAdapter:
 _ADAPTER = FakeAdapter()
 
 
-def get_adapter() -> FakeAdapter:
+def get_adapter() -> Any:
+    """当前生效的收款适配器：凭证齐全走 Vibe Pay 真实通道，否则 FakeAdapter。
+
+    延迟 import：pay_vibe 依赖本模块的 PayError/PRODUCTS，顶层互相 import 会成环。
+    切换是全自动的——部署时把四个环境变量配好，收银台就活了，代码零改动。
+    """
+    from clerk import pay_vibe
+
+    if pay_vibe.is_configured():
+        return pay_vibe.VibePayAdapter()
     return _ADAPTER
 
 

@@ -28,12 +28,12 @@ from typing import Any, Iterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import clerk.db as db
-from clerk import config, demo, pay, service
+from clerk import config, demo, pay, pay_vibe, service
 from clerk.bargain import BargainError, default_floor_price, to_money
 from clerk.service import ClerkError, ItemNotFound, QuotaExceeded, SuggestionNotFound
 from clerk.templates import LANGUAGES, TemplateJudge, select_judge
@@ -191,6 +191,10 @@ class PayNotifyRequest(BaseModel):
     out_trade_no: str
     amount: str | float
     trade_no: str | None = None
+
+
+class PayQueryRequest(BaseModel):
+    out_trade_no: str
 
 
 # --------------------------------------------------------------------------- #
@@ -444,6 +448,85 @@ def pay_notify_dev(payload: PayNotifyRequest) -> Any:
             trade_no=payload.trade_no,
             raw={"via": "notify-dev"},
         )
+
+
+@app.post("/api/pay/notify", response_class=PlainTextResponse)
+async def pay_notify(request: Request) -> str:
+    """支付宝异步通知（生产回调入口）。
+
+    文档纪律逐条落地：
+    - 验签失败/二次校验失败/处理异常 → "failure"（支付宝按 4m/10m/10m/1h/2h/6h/15h 重发）
+    - 处理成功 → "success"（纯文本，停止重发）；重发安全由状态机幂等保证
+    - 只有 TRADE_SUCCESS / TRADE_FINISHED 才推进 created→paid
+    - TRADE_CLOSED 且带退款特征、且订单已 paid → 走退款状态机（权益降回免费）
+    - 通道未配置时一律 "failure"：没签约却收到"支付宝通知"，那不是事故就是伪造
+    """
+    if not pay_vibe.is_configured():
+        return "failure"
+    form = await request.form()
+    params = {key: str(value) for key, value in form.items()}
+    try:
+        info = pay_vibe.verify_notify(params)
+    except Exception as exc:  # noqa: BLE001 — 验签环节任何异常都按失败处理
+        print(f"[pay] 异步通知验签失败：{exc}")
+        return "failure"
+
+    try:
+        with get_conn() as conn:
+            status = info["trade_status"]
+            if status in ("TRADE_SUCCESS", "TRADE_FINISHED"):
+                pay.handle_paid_notification(
+                    conn,
+                    out_trade_no=info["out_trade_no"],
+                    amount=info["amount"],
+                    trade_no=info.get("trade_no"),
+                    raw={"via": "async_notify", "notify_id": info.get("notify_id")},
+                )
+            elif status == "TRADE_CLOSED" and info.get("has_refund"):
+                order = pay.get_order(conn, out_trade_no=info["out_trade_no"])
+                if order is not None and order["status"] == "paid":
+                    pay.handle_refund_notification(
+                        conn, out_trade_no=info["out_trade_no"], raw={"via": "async_notify"}
+                    )
+            # WAIT_BUYER_PAY / 未付款超时关单：只路过，不改状态
+    except Exception as exc:  # noqa: BLE001 — 处理异常返回 failure 让支付宝重试，绝不吞通知
+        print(f"[pay] 异步通知处理异常：{exc}")
+        return "failure"
+    return "success"
+
+
+@app.post("/api/pay/query")
+def pay_query(payload: PayQueryRequest, request: Request) -> dict:
+    """主动查询兜底：文档原文"商家也可以直接调用该查询接口，不需要依赖异步通知"。
+
+    前端从收银台回跳后轮询这里；查询到 TRADE_SUCCESS 且本地还是 created，
+    就以查询结果入账（与异步通知走同一个幂等状态机，两边先到都安全）。
+    通道未配置时只返回本地状态（dev 联调用）。
+    """
+    token = require_token(request)
+    with get_conn() as conn:
+        order = pay.get_order(conn, out_trade_no=payload.out_trade_no)
+        # 越权与不存在给同一个错——不泄露订单号是否存在
+        if order is None or order["token"] != token:
+            raise pay.PayError(f"订单不存在：{payload.out_trade_no}")
+        trade_status = None
+        if pay_vibe.is_configured() and order["status"] == "created":
+            body = pay_vibe.query_trade(payload.out_trade_no)
+            trade_status = body.get("trade_status")
+            if body.get("code") == "10000" and trade_status in ("TRADE_SUCCESS", "TRADE_FINISHED"):
+                pay.handle_paid_notification(
+                    conn,
+                    out_trade_no=payload.out_trade_no,
+                    amount=body["total_amount"],
+                    trade_no=body.get("trade_no"),
+                    raw={"via": "trade_query"},
+                )
+        order = pay.get_order(conn, out_trade_no=payload.out_trade_no)
+        return {
+            "trade_status": trade_status,
+            "order": order,
+            "entitlement": pay.entitlement(conn, token),
+        }
 
 
 @app.get("/api/entitlements/me")

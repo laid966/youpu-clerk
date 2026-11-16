@@ -156,6 +156,7 @@ export default {
     amount: "金额",
     simulate: "模拟支付成功（联调通道）",
     paidOk: "支付成功，权益已生效",
+    payOpened: "已打开支付宝收银台，请在新窗口完成支付——本页会自动确认结果",
     channelPending: "真实支付通道接入中（G2 闸门）——签约支付宝 Vibe Pay 后，此处将跳转收银台",
     quotaNote: "额度按上海时区日历日重置。演示模式不消耗额度。",
   },

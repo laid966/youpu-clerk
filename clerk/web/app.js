@@ -954,17 +954,86 @@ async function buyFlow(productCode) {
   try {
     const result = await api.payOrder(productCode);
     const payment = result.payment || {};
+    const orderNo = result.order.out_trade_no;
+
+    // 真实通道：打开支付宝收银台（推荐 POST 表单；GET 链接兜底），然后轮询确认
+    if (payment.form_html) {
+      const win = window.open("", "_blank");
+      if (win) {
+        win.document.write(payment.form_html);
+        win.document.close();
+      }
+      closeModal();
+      toast(t("pricing.payOpened"));
+      rememberPendingOrder(orderNo);
+      return;
+    }
+    if (payment.pay_url) {
+      window.open(payment.pay_url, "_blank");
+      closeModal();
+      toast(t("pricing.payOpened"));
+      rememberPendingOrder(orderNo);
+      return;
+    }
+
+    // 未接入/dev：诚实展示通道状态；dev 环境给模拟支付按钮
     openModal(
       "<h3 style=\"margin:0 0 14px\">" + esc(t("pricing.orderCreated")) + "</h3>" +
-      '<div class="kv"><span>' + esc(t("pricing.orderNo")) + '</span><span class="v" style="font-family:var(--font-num)">' + esc(result.order.out_trade_no) + "</span></div>" +
+      '<div class="kv"><span>' + esc(t("pricing.orderNo")) + '</span><span class="v" style="font-family:var(--font-num)">' + esc(orderNo) + "</span></div>" +
       '<div class="kv"><span>' + esc(t("pricing.amount")) + '</span><span class="v" style="font-family:var(--font-num)">' + fmtMoney(result.order.amount) + "</span></div>" +
       '<p class="hint" style="margin:12px 0">' + esc(payment.instructions || t("pricing.channelPending")) + "</p>" +
       (payment.dev
-        ? '<button class="btn primary" data-act="pay-sim" data-no="' + esc(result.order.out_trade_no) + '" data-amount="' + esc(result.order.amount) + '">' + esc(t("pricing.simulate")) + "</button>"
+        ? '<button class="btn primary" data-act="pay-sim" data-no="' + esc(orderNo) + '" data-amount="' + esc(result.order.amount) + '">' + esc(t("pricing.simulate")) + "</button>"
         : "")
     );
   } catch (error) {
     toastErr(error);
+  }
+}
+
+// ---- 支付结果轮询：同步跳转不可信，权益以 notify/query 为准（文档纪律）----
+
+let payPollTimer = null;
+
+function rememberPendingOrder(orderNo) {
+  localStorage.setItem("clerk.pendingOrder", orderNo);
+  startPayPolling(orderNo);
+}
+
+function startPayPolling(orderNo, attempts) {
+  stopPayPolling();
+  let tries = 0;
+  const maxTries = attempts || 40; // 40 × 3s = 2 分钟，覆盖收银台停留时间
+  payPollTimer = setInterval(async () => {
+    tries += 1;
+    try {
+      const result = await api.payQuery(orderNo);
+      if (result.order && result.order.status === "paid") {
+        stopPayPolling();
+        localStorage.removeItem("clerk.pendingOrder");
+        toast(t("pricing.paidOk"), "ok");
+        state.wb = null;
+        render();
+        return;
+      }
+    } catch (error) {
+      // 网络抖动继续轮询；额度/权限类错误不值得轮下去
+      if (error && error.status && error.status !== 400) {
+        stopPayPolling();
+        localStorage.removeItem("clerk.pendingOrder");
+      }
+    }
+    if (tries >= maxTries) {
+      stopPayPolling();
+      localStorage.removeItem("clerk.pendingOrder");
+    }
+  }, 3000);
+}
+
+function stopPayPolling() {
+  if (payPollTimer) {
+    clearInterval(payPollTimer);
+    payPollTimer = null;
   }
 }
 
@@ -998,5 +1067,11 @@ document.addEventListener("change", (event) => {
 });
 
 window.addEventListener("hashchange", () => render());
+
+// 从支付宝收银台回跳/刷新页面后，接着确认上一笔待支付订单
+if (!IS_MOCK) {
+  const pendingOrder = localStorage.getItem("clerk.pendingOrder");
+  if (pendingOrder) startPayPolling(pendingOrder, 10);
+}
 
 render();
