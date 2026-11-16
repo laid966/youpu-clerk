@@ -60,6 +60,7 @@ __all__ = [
     "VibePayAdapter",
     "build_page_pay",
     "build_sign_content",
+    "execute_api",
     "is_configured",
     "load_private_key",
     "load_public_key",
@@ -344,7 +345,11 @@ def _verify_gateway_response(text: str, node: str) -> None:
         raise PayError(f"网关响应验签失败（{node}）——拒绝采信")
 
 
-def _execute(method: str, biz: dict) -> dict:
+def execute_api(method: str, biz: dict) -> dict:
+    """通用网关调用：签名 → POST → 响应验签 → 拆出业务 body。
+
+    公开给 machine_pay 复用（alipay.aipay.agent.* 两个接口走同一条路）。
+    """
     params = _common_params(method)
     params["biz_content"] = json.dumps(biz, ensure_ascii=False, separators=(",", ":"))
     signed = _signed(params)
@@ -367,12 +372,12 @@ def _execute(method: str, biz: dict) -> dict:
 
 def query_trade(out_trade_no: str) -> dict:
     """统一收单交易查询。文档：可以直接调查询接口，不需要依赖异步通知（兜底通道）。"""
-    return _execute("alipay.trade.query", {"out_trade_no": out_trade_no})
+    return execute_api("alipay.trade.query", {"out_trade_no": out_trade_no})
 
 
 def refund_trade(out_trade_no: str, refund_amount: str, out_request_no: str, reason: str = "退款") -> dict:
     """统一收单交易退款（同步返回结果；部分退款需不同的 out_request_no）。"""
-    return _execute(
+    return execute_api(
         "alipay.trade.refund",
         {
             "out_trade_no": out_trade_no,

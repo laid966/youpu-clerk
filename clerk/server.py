@@ -33,8 +33,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import clerk.db as db
-from clerk import config, demo, pay, pay_vibe, service
-from clerk.bargain import BargainError, default_floor_price, to_money
+from clerk import config, demo, machine_pay, pay, pay_vibe, service
+from clerk.bargain import (
+    BargainError,
+    BargainFacts,
+    decide_bargain,
+    default_floor_price,
+    to_money,
+)
 from clerk.service import ClerkError, ItemNotFound, QuotaExceeded, SuggestionNotFound
 from clerk.templates import LANGUAGES, TemplateJudge, select_judge
 
@@ -538,6 +544,96 @@ def entitlements(request: Request) -> dict:
     return {
         **entitlement_data,
         "quota": {"used_today": used, "free_limit": config.FREE_DAILY_SUGGESTIONS},
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Machine Pay（A2A · 402 协议）：把「可信议价决策」卖给其他 Agent
+# --------------------------------------------------------------------------- #
+
+
+class AgentBargainRequest(BaseModel):
+    asking_price: str
+    buyer_offer: str
+    floor_price: str | None = None  # 缺省 = default_floor_price（挂牌 × 85%）
+    concessions_used: int = 0
+
+
+@app.post("/api/agent/bargain")
+def agent_bargain(payload: AgentBargainRequest, request: Request):
+    """402 资源端点：无凭证 → 402+账单；带 Payment-Proof → 验凭证 → 交付决策 → 履约回执。
+
+    交付顺序纪律：**先算资源（纯函数、不花钱），再占 trade_no、后交付**——
+    入参非法时买家 Agent 的钱不能白花（测试盯着这个顺序）。
+    """
+    if not machine_pay.is_configured():
+        return _error_response(
+            501,
+            "MACHINE_PAY_NOT_CONFIGURED",
+            "A2A 按量付费通道未配置（缺 MACHINE_PAY_* 凭证）；人类通道（/api/inquiry）不受影响",
+        )
+
+    proof_header = request.headers.get("payment-proof")
+    if not proof_header:
+        # 第一步：签发账单，告诉对方"这个资源要先付钱"
+        out_trade_no = machine_pay.new_out_trade_no()
+        invoice = machine_pay.build_invoice(out_trade_no)
+        return JSONResponse(
+            status_code=402,
+            content={
+                "error": "Payment Needed",
+                "message": f"请先支付 {invoice['protocol']['amount']} CNY 以访问议价决策资源",
+                "resourceId": machine_pay.RESOURCE_ID,
+            },
+            headers={"Payment-Needed": machine_pay.encode_payment_needed(invoice)},
+        )
+
+    # 第二步：验凭证（签名真伪、active、金额、归属、资源防串）
+    try:
+        proof = machine_pay.parse_payment_proof(proof_header)
+        verdict = machine_pay.verify_proof(proof)
+        machine_pay.check_verification(
+            verdict, expected_amount=config.MACHINE_PAY_PRICE
+        )
+    except Exception as exc:  # noqa: BLE001 — 任何验证失败都回到 402：重新支付
+        return _error_response(402, "PROOF_INVALID", f"支付凭证无效或已过期：{exc}")
+
+    # 第三步：先算资源（纯函数），坏入参在这一步就被挡下、不消耗凭证
+    try:
+        asking = to_money(payload.asking_price)
+        floor = (
+            to_money(payload.floor_price)
+            if payload.floor_price
+            else default_floor_price(asking)
+        )
+        facts = BargainFacts(
+            asking_price=asking,
+            buyer_offer=to_money(payload.buyer_offer),
+            floor_price=floor,
+            concessions_used=payload.concessions_used,
+        )
+        decision = decide_bargain(facts)
+    except BargainError as exc:
+        return _error_response(400, "BAD_FACTS", str(exc))
+
+    # 第四步：占 trade_no（同一笔支付只能用一次）→ 交付 → 履约回执
+    trade_no = str(verdict.get("trade_no") or proof["protocol"]["trade_no"])
+    with get_conn() as conn:
+        fresh = db.record_machine_fulfillment(
+            conn,
+            trade_no,
+            str(verdict.get("out_trade_no") or ""),
+            machine_pay.RESOURCE_ID,
+            str(to_money(verdict.get("amount") or config.MACHINE_PAY_PRICE)),
+        )
+    if not fresh:
+        return _error_response(402, "PROOF_REUSED", "该支付凭证已履约过——同一笔支付不能重复使用")
+
+    machine_pay.confirm_fulfillment(trade_no)
+    return {
+        "resource": machine_pay.RESOURCE_ID,
+        "trade_no": trade_no,
+        "decision": decision.to_dict(),
     }
 
 

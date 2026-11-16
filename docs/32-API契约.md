@@ -177,9 +177,29 @@ POST /api/demo/step {persona_id, conversation_id?} → Suggestion + {persona_mes
 - 续期语义：从 max(now, 当前到期) 往后加 30 天，已付天数不被吃掉；退款则整体降回 free（MVP 简化，注释里写明了）。
 
 G2 之后要做的（只换适配器，状态机与测试不动）：
-- `VibePayAdapter.create_payment` → 真实下单链接/二维码
-- `VibePayAdapter.verify_notify` → 验签真实异步通知，生产入口 `/api/pay/notify`
-- 退款回调接入（`handle_refund_notification` 已就绪）
+- ~~`VibePayAdapter.create_payment` → 真实下单链接/二维码~~ ✅ 已实现（`clerk/pay_vibe.py`，凭证经 .env 注入即自动启用）
+- ~~验签真实异步通知，生产入口 `/api/pay/notify`~~ ✅ 已实现（RSA2 验签 + app_id/seller_id 二次校验）
+- ~~退款回调接入~~ ✅ TRADE_CLOSED + 退款特征的通知自动触发权益降级
+- 剩余：用户凭证注入 → 沙箱联调 → 真钱小额验证（G3）
+
+## 5b. Machine Pay · A2A 按量付费（402 协议，`clerk/machine_pay.py`）
+
+把「可信议价决策」卖给其他 Agent——产品同时有人类顾客（Vibe Pay）与 Agent 顾客（Machine Pay）。
+
+```
+POST /api/agent/bargain {asking_price, buyer_offer, floor_price?, concessions_used?}
+  无 Payment-Proof 头 → 402 + Payment-Needed 账单头（base64url，商家 RSA2 签名字段按文档八项字典序）
+  带 Payment-Proof 头 → alipay.aipay.agent.payment.verify 验凭证
+      → active / 金额 / out_trade_no 前缀 / resource_id 四重核对
+      → 先算资源（纯函数）再占 trade_no——坏入参不烧买家 Agent 的钱
+      → 200 {resource, trade_no, decision}   # decision 与人类通道同一颗引擎
+      → alipay.aipay.agent.fulfillment.confirm 履约回执（尽力而为，失败留日志）
+  trade_no 重放 → 402 PROOF_REUSED（machine_fulfillments 表主键即防线）
+  凭证未配置 → 501 MACHINE_PAY_NOT_CONFIGURED（诚实，不假装）
+```
+
+资源标识：`clerk://agent/bargain-decision`；单价 `config.MACHINE_PAY_PRICE`（默认 ¥0.01/次，★作者取值★）。
+凭证：`MACHINE_PAY_SELLER_ID / SELLER_APP_ID / SERVICE_ID`（签名复用 `ALIPAY_PRIVATE_KEY`）。
 
 ## 6. 验收（集成时 Lead 按此清单跑）
 

@@ -55,6 +55,8 @@ __all__ = [
     "new_id",
     "now_iso",
     "open_db",
+    "record_machine_fulfillment",
+    "get_machine_fulfillment",
     "set_conversation_language",
     "today_shanghai",
     "update_item",
@@ -143,6 +145,13 @@ CREATE TABLE IF NOT EXISTS orders(
   created_at TEXT NOT NULL,
   paid_at TEXT,
   notify_json TEXT);
+
+CREATE TABLE IF NOT EXISTS machine_fulfillments(
+  trade_no TEXT PRIMARY KEY,
+  out_trade_no TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  amount TEXT NOT NULL,
+  created_at TEXT NOT NULL);
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_conv ON decisions(conversation_id, item_id);
@@ -537,3 +546,29 @@ def ledger_by_day(conn: sqlite3.Connection, token: str, day: str) -> list[dict]:
         (token, day),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------- #
+# Machine Pay（A2A）履约记录：同一 trade_no 只许履约一次
+# --------------------------------------------------------------------------- #
+
+
+def record_machine_fulfillment(
+    conn: sqlite3.Connection, trade_no: str, out_trade_no: str, resource_id: str, amount: str
+) -> bool:
+    """登记一笔 A2A 履约。返回 False = 该 trade_no 已履约过（同一笔支付不许用两次）。"""
+    assert_money(amount, "amount")
+    cursor = conn.execute(
+        "INSERT OR IGNORE INTO machine_fulfillments(trade_no, out_trade_no, resource_id, amount, created_at)"
+        " VALUES(?,?,?,?,?)",
+        (trade_no, out_trade_no, resource_id, amount, now_iso()),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def get_machine_fulfillment(conn: sqlite3.Connection, trade_no: str) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM machine_fulfillments WHERE trade_no = ?", (trade_no,)
+    ).fetchone()
+    return dict(row) if row else None
