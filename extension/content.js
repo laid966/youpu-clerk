@@ -141,6 +141,7 @@ function renderSuggestion(s) {
         '<button id="yp-sent" style="cursor:pointer;background:#fff;color:#1C1917;border:1px solid #D6D3D1;border-radius:6px;padding:7px 10px;font-size:12.5px">' + L.markSent + "</button>" +
         '<button id="yp-discard" style="cursor:pointer;background:#fff;color:#78716C;border:1px solid #E7E5E4;border-radius:6px;padding:7px 10px;font-size:12.5px">' + L.discard + "</button>" +
       "</div>" +
+      '<div style="margin-top:8px;text-align:right"><button id="yp-wb" style="all:unset;cursor:pointer;color:' + ACCENT + ';font-size:11.5px">' + L.openWb + " ↗</button></div>" +
       '<div id="yp-status" style="margin-top:8px;font-size:11.5px;color:#16A34A;min-height:16px"></div>' +
     "</div>",
     () => {
@@ -155,6 +156,14 @@ function renderSuggestion(s) {
       bind("yp-discard", async () => {
         await chrome.runtime.sendMessage({ type: "adopt", suggestionId: s.suggestion_id, action: "discarded" });
         closePanel();
+      });
+      bind("yp-wb", async () => {
+        const settings = await chrome.runtime.sendMessage({ type: "settings" });
+        // 带扩展的 token 打开工作台：两边同一账户（商品/台账/额度不分裂）
+        window.open(
+          (settings.apiBase || "").replace(/\/$/, "") + "/?token=" + encodeURIComponent(settings.token || ""),
+          "_blank"
+        );
       });
       bind("yp-close", closePanel);
       function bind(id, handler) {
