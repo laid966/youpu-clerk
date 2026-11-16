@@ -1,5 +1,17 @@
 # rulecheck → auditkit
 
+> ## 📢 本仓库现在有两个产品
+>
+> **1. 有谱掌柜（clerk/）—— PAYATHON 2026 Vibe 赛道参赛作品**
+> 二手卖家的可信 AI 店员：买家来砍价，AI 在你授权的底价制度内接待、还价、留痕。
+> **话是 AI 说的，钱是程序算的，每次让步都有据可查。**
+> 跑起来：`.venv\Scripts\python.exe -m uvicorn clerk.server:app --port 8100` → http://127.0.0.1:8100
+> 文档：`docs/31-UI设计基调` · `docs/32-API契约` · `docs/33-部署手册` · `docs/34-提交材料`；
+> Chrome 扩展见 `extension/README.md`。
+>
+> **2. auditkit（engine/ audit/ rag/ agent/）—— 判定类 AI 输出的差分审计器**（下述原始项目，
+> 其判定引擎/护栏/插件架构已被「有谱掌柜」复用为议价授权层）
+
 > **当前方向已调整为 auditkit：判定类 AI 输出的差分审计器。**
 > 用独立的确定性 oracle 重算，找出 AI 输出里的缺陷（漏判 / 降级 / 数值错 / 单位错 / 阈值用错 / 引用编造 / 内部矛盾 / 安全越界），
 > 定位、给证据、给修复建议，并**用注入式基准证明自己找得全**。
