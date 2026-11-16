@@ -43,6 +43,10 @@ export default {
     sub: "Five buyer personas, seventeen scripted steps — expected vs. actual verdict shown side by side.",
     btn: "Open the demo",
   },
+  landing: {
+    previewTitle: "This is the workbench",
+    previewNote: "Read-only preview with demo-script data — waiting conversations on the left (red dot = needs you), the suggestion card in the middle, today's numbers and the concession ledger on the right.",
+  },
   demo: {
     title: "Demo mode",
     sub: "Pick a buyer persona and watch the clerk handle it. Fully deterministic engine, byte-for-byte reproducible.",

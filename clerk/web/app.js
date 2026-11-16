@@ -276,6 +276,8 @@ function renderLanding(seq) {
       promiseRow(t("promise.p3t"), t("promise.p3d")) +
     "</section>" +
 
+    workbenchPreview() +
+
     '<section class="section container" style="text-align:center;padding-bottom:72px">' +
       '<h2 class="section-title">' + esc(t("cta.title")) + "</h2>" +
       '<p class="section-sub">' + esc(t("cta.sub")) + "</p>" +
@@ -283,6 +285,73 @@ function renderLanding(seq) {
     "</section>";
 
   if (stale(seq)) return;
+}
+
+// 落地页上的工作台预览：用真实组件类渲染的只读示意（数据来自演示剧本，标注诚实）
+function workbenchPreview() {
+  const sampleSuggestion = {
+    decision: {
+      kind: "counter",
+      price: "379.05",
+      rule_id: "BARGAIN-COUNTER-T1",
+      citations: [state.lang === "en"
+        ? "Concession tier 1: counter at 95% of the listing price"
+        : "第 1 轮让步：按挂牌价 95% 还价（让步梯度第 1 档）"],
+      reasons: [],
+      requires_human_review: false,
+    },
+    reply_text: state.lang === "en"
+      ? "Sorry, I can't go that low. The best I can do is 379.05 — it's a really fair price!"
+      : "亲，这个价真出不了～379.05 已经是诚意价了，真心喜欢就带走吧！",
+    classification: { language: "zh", kind: "bargain", offer: "300.00" },
+    guardrail_hits: [],
+    trace: [
+      { step: "classify", ok: true, ms: 2, note: "bargain / zh / offer=300.00" },
+      { step: "decide", ok: true, ms: 1, note: "counter 379.05 · BARGAIN-COUNTER-T1" },
+      { step: "draft", ok: true, ms: 1, note: state.lang === "en" ? "template (en)" : "模板话术（zh）" },
+      { step: "guardrail", ok: true, ms: 0, note: state.lang === "en" ? "0 hits" : "0 命中" },
+    ],
+  };
+
+  const convRow = (alias, itemTitle, human) =>
+    '<div class="conv-item"><div class="t1"><span class="status-dot ' + (human ? "human" : "open") + '"></span>' +
+    esc(alias) + (human ? ' <span class="chip bad">' + t("wb.needHuman") + "</span>" : "") + "</div>" +
+    '<div class="t2">' + esc(itemTitle) + "</div></div>";
+
+  return (
+    '<section class="section container">' +
+      '<h2 class="section-title">' + esc(t("landing.previewTitle")) + "</h2>" +
+      '<p class="section-sub">' + esc(t("landing.previewNote")) + "</p>" +
+      '<div class="wb-grid" style="padding:0;max-width:none">' +
+        '<div class="pane"><div class="pane-head"><span>' + t("wb.queue") + ' <span class="chip bad">1 ' + t("wb.needHuman") + "</span></span></div>" +
+          '<div class="pane-body">' +
+            convRow(state.lang === "en" ? "Haggler Wang" : "砍价党老王", state.lang === "en" ? "Mechanical Keyboard" : "机械键盘 87 键", false) +
+            convRow("Emma", state.lang === "en" ? "Mechanical Keyboard" : "机械键盘 87 键", false) +
+            convRow(state.lang === "en" ? "Upset Zhang" : "售后抱怨张姐", state.lang === "en" ? "Smart Band 8" : "小米手环 8", true) +
+          "</div></div>" +
+        '<div class="pane"><div class="pane-head"><span>' + t("wb.title") + "</span></div>" +
+          '<div class="pane-body"><div class="thread">' +
+            buyerBubble(state.lang === "en" ? "How about 300?" : "300行不行", state.lang === "en" ? "Haggler Wang" : "砍价党老王") +
+            suggestionCard(sampleSuggestion, {}) +
+          "</div>" +
+          '<div class="paste-bar"><textarea disabled placeholder="' + esc(t("wb.pastePlaceholder")) + '"></textarea>' +
+          '<button class="btn primary" disabled style="align-self:flex-end">' + t("wb.getSuggest") + "</button></div>" +
+          "</div></div>" +
+        '<div style="display:flex;flex-direction:column;gap:16px">' +
+          '<div class="pane"><div class="pane-head"><span>' + t("wb.today") + "</span></div><div class=\"pane-body\"><div class=\"stat-grid\">" +
+            stat(6, t("wb.statInquiries")) + stat(3, t("wb.statCounters")) +
+            stat(2, t("wb.statAccepts")) + stat(1, t("wb.statHumans")) +
+          "</div></div></div>" +
+          '<div class="pane"><div class="pane-head"><span>' + t("wb.ledger") + "</span></div><div class=\"pane-body\">" +
+            '<table class="ledger-table"><tbody>' +
+            '<tr><td><span class="badge b-counter">' + t("suggest.counter") + '</span></td><td class="num">' + fmtMoney("379.05") + '</td><td><span class="hint">BARGAIN-COUNTER-T1</span></td></tr>' +
+            '<tr><td><span class="badge b-accept">' + t("suggest.accept") + '</span></td><td class="num">' + fmtMoney("340.00") + '</td><td><span class="hint">BARGAIN-ACCEPT</span></td></tr>' +
+            '<tr><td><span class="badge b-human">' + t("suggest.human") + '</span></td><td class="num">—</td><td><span class="hint">BARGAIN-HUMAN-LOWBALL</span></td></tr>' +
+            "</tbody></table></div></div>" +
+        "</div>" +
+      "</div>" +
+    "</section>"
+  );
 }
 
 function flowRow(num, title, desc, who, whoClass) {
