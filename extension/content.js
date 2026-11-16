@@ -48,7 +48,7 @@ const L = IS_ZH
       kinds: { counter: "Counter", accept: "Accept", firm: "Hold", human: "Human", none: "Reply" },
     };
 
-const ACCENT = "#1677FF";
+const ACCENT = "#C2401D"; // 朱砂：与工作台同一枚印章色
 
 // ---- 浮动按钮（划词出现） ----
 
@@ -120,7 +120,7 @@ async function askClerk(text) {
 function renderSuggestion(s) {
   const d = s.decision;
   const kind = d ? d.kind : "none";
-  const colors = { counter: ACCENT, accept: "#16A34A", firm: "#D97706", human: "#DC2626", none: "#78716C" };
+  const colors = { counter: "#221D18", accept: "#2F7D4F", firm: "#A9701C", human: ACCENT, none: "#6E6459" };
   const color = colors[kind] || ACCENT;
   const price = d && d.price ? '<span style="font:600 20px/1 ui-monospace,Consolas,monospace;color:' + color + '">' + (IS_ZH ? "¥" : "CNY ") + d.price + "</span>" : "";
   const cites = d && d.citations && d.citations.length
@@ -134,7 +134,7 @@ function renderSuggestion(s) {
         price +
         '<button id="yp-close" style="all:unset;margin-left:auto;cursor:pointer;color:#A8A29E;font-size:15px;padding:0 4px">✕</button>' +
       "</div>" +
-      '<div style="background:#FAFAF9;border:1px dashed #D6D3D1;border-radius:6px;padding:8px 10px;white-space:pre-wrap;word-break:break-word">' + esc(s.reply_text) + "</div>" +
+      '<div style="background:#F4EFE4;border:1px dashed #C9BCA4;border-radius:6px;padding:8px 10px;white-space:pre-wrap;word-break:break-word">' + esc(s.reply_text) + "</div>" +
       cites +
       '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">' +
         '<button id="yp-copy" style="flex:1;cursor:pointer;background:' + ACCENT + ";color:#fff;border:0;border-radius:6px;padding:7px 10px;font-size:12.5px\">" + L.copy + "</button>" +
@@ -184,8 +184,8 @@ function openPanel(innerHtml, afterBind) {
   closePanel();
   panelHost = document.createElement("div");
   panelHost.setAttribute("style",
-    "position:fixed;z-index:2147483647;right:20px;bottom:20px;background:#fff;border:1px solid #E7E5E4;" +
-    "border-radius:12px;box-shadow:0 12px 32px rgba(28,25,23,.18);padding:14px");
+    "position:fixed;z-index:2147483647;right:20px;bottom:20px;background:#FFFCF5;border:2px solid #221D18;" +
+    "border-radius:10px;box-shadow:5px 5px 0 rgba(34,29,24,.28);padding:14px");
   panelShadow = panelHost.attachShadow({ mode: "open" });
   panelShadow.innerHTML = innerHtml;
   document.documentElement.appendChild(panelHost);
@@ -208,24 +208,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       esc((message.result && (message.result.message || message.result.error)) || L.error) + "</div>");
     return;
   }
-  // 页面诊断（G1 工具）：只读地收集聊天 DOM 的候选结构，供店主复制给开发者判断
-  // "自动监听层"能不能做、选择器怎么写。不修改页面、不读取任何消息内容本身。
+  // 页面诊断（G1 工具）：只读地收集聊天 DOM 的**结构**信息（选择器命中数 + 形状树 +
+  // 发送框候选），供店主复制给开发者判断"自动监听层"能不能做、选择器怎么写。
+  // 隐私红线：不采消息文本、不采输入框内容、不采凭据——sample 只含 tag/class/子节点数。
   if (message && message.type === "youpu-diagnose") {
     const selectors = [
       "[class*='message']", "[class*='chat']", "[class*='im-']",
       "[class*='msg']", "[class*='session']", "[class*='conversation']",
-      "iframe",
+      "iframe", "textarea", "[contenteditable='true']",
     ];
     const candidates = {};
     for (const sel of selectors) {
       try { candidates[sel] = document.querySelectorAll(sel).length; } catch (e) { candidates[sel] = -1; }
     }
+    const clsOf = (el) => String(el && el.className ? (el.className.baseVal !== undefined ? el.className.baseVal : el.className) : "").slice(0, 100);
+    const shape = (el, depth) => (!el || depth > 2) ? null : ({
+      tag: el.tagName, cls: clsOf(el),
+      kids: Array.from(el.children).slice(0, 6).map((c) => shape(c, depth + 1)),
+    });
     const first = document.querySelector("[class*='message'], [class*='chat'], [class*='msg']");
+    const send = document.querySelector("textarea, [contenteditable='true']");
     sendResponse({
       url: location.href,
       title: document.title,
       candidates,
-      sample: first ? first.outerHTML.slice(0, 400) : null,
+      sampleTree: shape(first, 0),
+      sendBox: send ? { tag: send.tagName, cls: clsOf(send) } : null,
     });
     return;
   }

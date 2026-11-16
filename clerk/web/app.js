@@ -47,8 +47,7 @@ function fmtMoney(amountStr) {
   return state.lang === "en" ? "CNY " + amountStr : "¥" + amountStr;
 }
 
-const CHECK_SVG =
-  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const CHECK_SVG = ""; // 已弃用：承诺行的勾改为「核」字印章（.seal-check），见 promiseRow
 
 // ---------------------------------------------------------------------------
 // Toast 与 Modal
@@ -206,6 +205,17 @@ function renderChrome(route) {
     b.classList.toggle("active", b.dataset.lang === state.lang));
   document.getElementById("footerText").textContent = t("footer.disclaimer");
   document.documentElement.lang = state.lang === "zh" ? "zh-CN" : "en";
+  // 标题与描述也随语言走——海外用户分享/收藏时看到的是英文
+  document.title = state.lang === "zh" ? "有谱掌柜 · 可信 AI 店员" : "YouPu Clerk · The Trustworthy AI Shop Clerk";
+  const desc = document.querySelector('meta[name="description"]');
+  if (desc) {
+    desc.setAttribute(
+      "content",
+      state.lang === "zh"
+        ? "话是 AI 说的，钱是程序算的，每次让步都有据可查。二手卖家的数字店员。"
+        : "The AI talks. The program counts the money. Every concession is auditable. A digital shop clerk for resellers."
+    );
+  }
 }
 
 let renderToken = 0;
@@ -262,15 +272,17 @@ function renderLanding(seq) {
     "</section>" +
 
     '<section class="section container">' +
+      '<div class="sec-head"><span class="vlabel">' + esc(t("landing.tagPrinciple")) + "</span><div>" +
       '<h2 class="section-title">' + esc(t("principle.title")) + "</h2>" +
-      '<p class="section-sub">' + esc(t("principle.sub")) + "</p>" +
+      '<p class="section-sub">' + esc(t("principle.sub")) + "</p></div></div>" +
       flowRow(1, t("principle.s1t"), t("principle.s1d"), t("principle.s1who"), "") +
       flowRow(2, t("principle.s2t"), t("principle.s2d"), t("principle.s2who"), "program") +
       flowRow(3, t("principle.s3t"), t("principle.s3d"), t("principle.s3who"), "human") +
     "</section>" +
 
     '<section class="section container">' +
-      '<h2 class="section-title">' + esc(t("promise.title")) + "</h2>" +
+      '<div class="sec-head"><span class="vlabel">' + esc(t("landing.tagPromise")) + "</span><div>" +
+      '<h2 class="section-title">' + esc(t("promise.title")) + "</h2></div></div>" +
       promiseRow(t("promise.p1t"), t("promise.p1d")) +
       promiseRow(t("promise.p2t"), t("promise.p2d")) +
       promiseRow(t("promise.p3t"), t("promise.p3d")) +
@@ -320,8 +332,9 @@ function workbenchPreview() {
 
   return (
     '<section class="section container">' +
+      '<div class="sec-head"><span class="vlabel">' + esc(t("landing.tagPreview")) + "</span><div>" +
       '<h2 class="section-title">' + esc(t("landing.previewTitle")) + "</h2>" +
-      '<p class="section-sub">' + esc(t("landing.previewNote")) + "</p>" +
+      '<p class="section-sub">' + esc(t("landing.previewNote")) + "</p></div></div>" +
       '<div class="wb-grid" style="padding:0;max-width:none">' +
         '<div class="pane"><div class="pane-head"><span>' + t("wb.queue") + ' <span class="chip bad">1 ' + t("wb.needHuman") + "</span></span></div>" +
           '<div class="pane-body">' +
@@ -363,7 +376,7 @@ function flowRow(num, title, desc, who, whoClass) {
 }
 
 function promiseRow(title, desc) {
-  return '<div class="promise-row">' + CHECK_SVG + "<div><h3>" + esc(title) + "</h3><p>" + esc(desc) + "</p></div></div>";
+  return '<div class="promise-row"><span class="seal-check">核</span><div><h3>' + esc(title) + "</h3><p>" + esc(desc) + "</p></div></div>";
 }
 
 // ---------------------------------------------------------------------------
@@ -409,8 +422,9 @@ function renderPersonaGrid() {
   }).join("");
 
   view.innerHTML =
-    '<div class="container"><h1 class="section-title">' + esc(t("demo.title")) + "</h1>" +
-    '<p class="section-sub">' + esc(t("demo.sub")) + (IS_MOCK ? " · mock" : "") + "</p>" +
+    '<div class="container"><div class="sec-head"><span class="vlabel">' + esc(t("landing.tagDemo")) + "</span><div>" +
+    '<h1 class="section-title">' + esc(t("demo.title")) + "</h1>" +
+    '<p class="section-sub">' + esc(t("demo.sub")) + (IS_MOCK ? " · mock" : "") + "</p></div></div>" +
     '<div class="persona-grid">' + cards + "</div></div>";
 }
 
@@ -880,20 +894,28 @@ function buildReportCard(data) {
   const card = document.createElement("div");
   card.id = "reportCard";
   card.setAttribute("style",
-    "width:640px;height:360px;box-sizing:border-box;background:#FFFFFF;border-radius:16px;padding:34px 40px;" +
-    'font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#1C1917;' +
-    "display:flex;flex-direction:column;justify-content:space-between");
+    "width:640px;height:360px;box-sizing:border-box;position:relative;background:#FFFCF5;" +
+    "border:2px solid #221D18;border-radius:12px;padding:32px 40px;" +
+    'font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#221D18;' +
+    "display:flex;flex-direction:column;justify-content:space-between;" +
+    "box-shadow:6px 6px 0 rgba(34,29,24,.25)");
   const big = "font-family:ui-monospace,Consolas,monospace;font-weight:700;font-variant-numeric:tabular-nums";
+  const serif = 'font-family:"Noto Serif SC","Songti SC","SimSun",Georgia,serif';
   card.innerHTML =
+    // 朱砂核印：这张卡上每个数字都经过授权引擎——章就是证据
+    '<div style="position:absolute;top:22px;right:26px;width:76px;height:76px;border:3px solid #C2401D;' +
+    'color:#C2401D;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+    'transform:rotate(-9deg);' + serif + ';font-size:38px;font-weight:700;opacity:.92">核</div>' +
     '<div style="display:flex;align-items:center;gap:10px">' +
-      '<span style="width:30px;height:30px;border-radius:8px;background:#1677FF;color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px">谱</span>' +
-      '<span style="font-weight:600;font-size:15px">' + (state.lang === "en" ? "YouPu Clerk" : "有谱掌柜") + "</span>" +
-      '<span style="margin-left:auto;color:#A8A29E;font-size:12px">' + esc(data.day || new Date().toISOString().slice(0, 10)) + "</span>" +
+      '<span style="width:30px;height:30px;border-radius:5px;background:#C2401D;color:#FFF6EE;display:flex;align-items:center;justify-content:center;' +
+      serif + ';font-size:16px;font-weight:700;transform:rotate(-3deg)">谱</span>' +
+      '<span style="font-weight:700;font-size:15px;' + serif + ';letter-spacing:.08em">' + (state.lang === "en" ? "YouPu Clerk" : "有谱掌柜") + "</span>" +
+      '<span style="color:#A79C8E;font-size:12px;margin-left:8px">' + esc(data.day || new Date().toISOString().slice(0, 10)) + "</span>" +
     "</div>" +
     "<div>" +
-      '<div style="font-size:30px;font-weight:700;letter-spacing:-.01em">' +
-        '<span style="' + big + ';color:#1677FF;font-size:44px">' + data.concessions + "</span> " + esc(t("report.concessions")) +
-        ' · <span style="color:#16A34A">' + esc(t("report.inAuth")) + "</span></div>" +
+      '<div style="' + serif + ';font-size:26px;font-weight:700;letter-spacing:.01em">' +
+        '<span style="' + big + ';color:#C2401D;font-size:46px">' + data.concessions + "</span> " + esc(t("report.concessions")) +
+        ' · <span style="color:#2F7D4F">' + esc(t("report.inAuth")) + "</span></div>" +
       '<div style="display:flex;gap:36px;margin-top:18px">' +
         reportStat(data.inquiries, t("report.inquiries"), big) +
         reportStat(data.accepts, t("report.accepts"), big) +
@@ -901,14 +923,14 @@ function buildReportCard(data) {
         reportStat(data.audited == null ? data.inquiries : data.audited, t("report.audited"), big) +
       "</div>" +
     "</div>" +
-    '<div style="color:#78716C;font-size:12.5px;border-top:1px solid #E7E5E4;padding-top:14px">' +
+    '<div style="color:#6E6459;font-size:12.5px;border-top:1px dashed #C9BCA4;padding-top:14px;' + serif + ';letter-spacing:.06em">' +
       esc(t("report.tagline")) + "</div>";
   return card;
 }
 
 function reportStat(n, label, big) {
-  return '<div><div style="' + big + ';font-size:26px">' + (n == null ? 0 : n) + "</div>" +
-    '<div style="color:#78716C;font-size:12px;margin-top:2px">' + esc(label) + "</div></div>";
+  return '<div><div style="' + big + ';font-size:26px;color:#221D18">' + (n == null ? 0 : n) + "</div>" +
+    '<div style="color:#6E6459;font-size:12px;margin-top:2px;letter-spacing:.08em">' + esc(label) + "</div></div>";
 }
 
 function openReportModal(data) {

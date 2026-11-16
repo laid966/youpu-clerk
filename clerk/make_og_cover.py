@@ -19,47 +19,53 @@ from PIL import Image, ImageDraw, ImageFont
 OUT = Path(__file__).resolve().parent / "web" / "og-cover.png"
 
 W, H = 1200, 630
-BG = "#FAFAF9"
-INK = "#1C1917"
-MUTED = "#78716C"
-ACCENT = "#1677FF"
-BORDER = "#E7E5E4"
+BG = "#F4EFE4"        # 宣纸
+INK = "#221D18"       # 墨
+MUTED = "#6E6459"
+ACCENT = "#C2401D"    # 朱砂
+BORDER = "#C9BCA4"
 
 FONT_BOLD = "C:/Windows/Fonts/msyhbd.ttc"
 FONT_REG = "C:/Windows/Fonts/msyh.ttc"
+FONT_SERIF = "C:/Windows/Fonts/simsun.ttc"  # 宋体：木刻印刷感
 
 
 def main() -> None:
     image = Image.new("RGB", (W, H), BG)
     draw = ImageDraw.Draw(image)
 
-    f_brand = ImageFont.truetype(FONT_BOLD, 34)
+    f_brand = ImageFont.truetype(FONT_SERIF, 40)
     f_brand_en = ImageFont.truetype(FONT_REG, 22)
-    f_mark = ImageFont.truetype(FONT_BOLD, 40)
-    f_headline = ImageFont.truetype(FONT_BOLD, 76)
+    f_mark = ImageFont.truetype(FONT_SERIF, 40)
+    f_headline = ImageFont.truetype(FONT_SERIF, 88)
+    f_seal = ImageFont.truetype(FONT_SERIF, 44)
     f_sub = ImageFont.truetype(FONT_REG, 30)
     f_chip = ImageFont.truetype(FONT_REG, 26)
 
-    # 品牌区：蓝色圆角方块「谱」+ 产品名
-    draw.rounded_rectangle([72, 64, 136, 128], radius=18, fill=ACCENT)
-    draw.text((104, 96), "谱", font=f_mark, fill="white", anchor="mm")
-    draw.text((160, 70), "有谱掌柜", font=f_brand, fill=INK)
-    draw.text((160, 112), "YouPu Clerk · PAYATHON 2026", font=f_brand_en, fill=MUTED)
+    # 品牌区：朱砂方印「谱」+ 宋体产品名
+    draw.rounded_rectangle([72, 60, 140, 128], radius=10, fill=ACCENT)
+    draw.text((106, 94), "谱", font=f_mark, fill="#FFF6EE", anchor="mm")
+    draw.text((164, 66), "有谱掌柜", font=f_brand, fill=INK)
+    draw.text((164, 112), "YouPu Clerk · PAYATHON 2026", font=f_brand_en, fill=MUTED)
 
-    # 主标题（两行，产品灵魂）
-    draw.text((72, 232), "话是 AI 说的，", font=f_headline, fill=INK)
-    draw.text((72, 322), "钱是程序算的。", font=f_headline, fill=ACCENT)
+    # 右上核印（圆章，微旋转）
+    draw.ellipse([W - 208, 52, W - 96, 164], outline=ACCENT, width=5)
+    draw.text((W - 152, 108), "核", font=f_seal, fill=ACCENT, anchor="mm")
+
+    # 主标题（宋体大字，第二行朱砂）
+    draw.text((72, 250), "话是 AI 说的，", font=f_headline, fill=INK)
+    draw.text((72, 352), "钱是程序算的。", font=f_headline, fill=ACCENT)
 
     # 副标题
-    draw.text((72, 436), "二手卖家的可信 AI 店员 —— 每次让步都有据可查，中英双语接待", font=f_sub, fill=MUTED)
+    draw.text((72, 470), "二手卖家的可信 AI 店员 —— 每次让步都有据可查，中英双语接待", font=f_sub, fill=MUTED)
 
-    # 底部三枚承诺 chip
+    # 底部三枚承诺 chip（墨线白底，木刻感）
     chips = ["授权之内议价", "逐条规则依据", "台账不可改写"]
     x = 72
     for text in chips:
         width = draw.textlength(text, font=f_chip)
-        draw.rounded_rectangle([x, 512, x + width + 44, 566], radius=27, outline=BORDER, width=2, fill="white")
-        draw.text((x + 22, 539), text, font=f_chip, fill=INK, anchor="lm")
+        draw.rounded_rectangle([x, 528, x + width + 44, 582], radius=6, outline=INK, width=2, fill="#FFFCF5")
+        draw.text((x + 22, 555), text, font=f_chip, fill=INK, anchor="lm")
         x += width + 44 + 20
 
     # 底部强调条
