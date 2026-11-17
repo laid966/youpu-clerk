@@ -911,9 +911,10 @@ function buildReportCard(data) {
     'color:#C2401D;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
     'transform:rotate(-9deg);' + serif + ';font-size:38px;font-weight:700;opacity:.92">核</div>' +
     '<div style="display:flex;align-items:center;gap:10px">' +
-      '<span style="width:30px;height:30px;border-radius:5px;background:#C2401D;color:#FFF6EE;display:flex;align-items:center;justify-content:center;' +
-      serif + ';font-size:16px;font-weight:700;transform:rotate(-3deg)">谱</span>' +
-      '<span style="font-weight:700;font-size:15px;' + serif + ';letter-spacing:.08em">' + (state.lang === "en" ? "YouPu Clerk" : "有谱掌柜") + "</span>" +
+      '<span style="display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 9px;border-radius:6px;' +
+      'background:#C2401D;color:#FFF6EE;' + serif + ';font-size:16px;font-weight:700;letter-spacing:.1em;transform:rotate(-2deg)">有谱</span>' +
+      '<span style="font-weight:700;font-size:18px;' + serif + ';letter-spacing:.14em">掌柜</span>' +
+      '<span style="color:#A79C8E;font-size:10px;letter-spacing:.18em">YOUPU CLERK</span>' +
       '<span style="color:#A79C8E;font-size:12px;margin-left:8px">' + esc(data.day || new Date().toISOString().slice(0, 10)) + "</span>" +
     "</div>" +
     "<div>" +

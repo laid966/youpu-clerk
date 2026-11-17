@@ -14,7 +14,7 @@
 const IS_ZH = (navigator.language || "").toLowerCase().startsWith("zh");
 const L = IS_ZH
   ? {
-      ask: "谱 · 问掌柜",
+      ask: "有谱 · 问掌柜",
       loading: "程序算钱中…",
       copy: "复制回复",
       copied: "已复制——去亲手发给买家吧",

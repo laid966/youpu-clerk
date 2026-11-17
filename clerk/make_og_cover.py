@@ -34,19 +34,19 @@ def main() -> None:
     image = Image.new("RGB", (W, H), BG)
     draw = ImageDraw.Draw(image)
 
-    f_brand = ImageFont.truetype(FONT_SERIF, 40)
-    f_brand_en = ImageFont.truetype(FONT_REG, 22)
-    f_mark = ImageFont.truetype(FONT_SERIF, 40)
+    f_brand = ImageFont.truetype(FONT_SERIF, 46)
+    f_brand_en = ImageFont.truetype(FONT_REG, 20)
+    f_mark = ImageFont.truetype(FONT_SERIF, 38)
     f_headline = ImageFont.truetype(FONT_SERIF, 88)
     f_seal = ImageFont.truetype(FONT_SERIF, 44)
     f_sub = ImageFont.truetype(FONT_REG, 30)
     f_chip = ImageFont.truetype(FONT_REG, 26)
 
-    # 品牌区：朱砂方印「谱」+ 宋体产品名
-    draw.rounded_rectangle([72, 60, 140, 128], radius=10, fill=ACCENT)
-    draw.text((106, 94), "谱", font=f_mark, fill="#FFF6EE", anchor="mm")
-    draw.text((164, 66), "有谱掌柜", font=f_brand, fill=INK)
-    draw.text((164, 112), "YouPu Clerk · PAYATHON 2026", font=f_brand_en, fill=MUTED)
+    # 品牌区：双字锁标（实底块装「有谱」，小红书式成熟平台范式）+「掌柜」字标
+    draw.rounded_rectangle([72, 56, 192, 122], radius=12, fill=ACCENT)
+    draw.text((132, 89), "有谱", font=f_mark, fill="#FFF6EE", anchor="mm")
+    draw.text((212, 88), "掌柜", font=f_brand, fill=INK, anchor="lm")
+    draw.text((214, 130), "YOUPU CLERK · PAYATHON 2026", font=f_brand_en, fill=MUTED, anchor="la")
 
     # 右上核印（圆章，微旋转）
     draw.ellipse([W - 208, 52, W - 96, 164], outline=ACCENT, width=5)
