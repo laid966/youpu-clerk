@@ -42,11 +42,29 @@ def main() -> None:
     f_sub = ImageFont.truetype(FONT_REG, 30)
     f_chip = ImageFont.truetype(FONT_REG, 26)
 
-    # 品牌区：双字锁标（实底块装「有谱」，小红书式成熟平台范式）+「掌柜」字标
-    draw.rounded_rectangle([72, 56, 192, 122], radius=12, fill=ACCENT)
-    draw.text((132, 89), "有谱", font=f_mark, fill="#FFF6EE", anchor="mm")
-    draw.text((212, 88), "掌柜", font=f_brand, fill=INK, anchor="lm")
-    draw.text((214, 130), "YOUPU CLERK · PAYATHON 2026", font=f_brand_en, fill=MUTED, anchor="la")
+    # 标志：极简算盘（梁+档+双珠），与 clerk/web/logo.svg 同源几何
+    lx, ly, ls = 72.0, 56.0, 76.0 / 64.0
+
+    def px(v: float) -> float:
+        return lx + v * ls
+
+    def py(v: float) -> float:
+        return ly + v * ls
+
+    GRAY_BEAD = "#8D857A"  # 墨色 35% 不透明落在宣纸上的等效色
+    draw.line([px(12), py(10), px(52), py(10)], fill=INK, width=7)
+    draw.line([px(32), py(10), px(32), py(58)], fill=INK, width=6)
+    for cx, cy, r in ((12, 10, 3.5), (52, 10, 3.5), (32, 10, 3), (32, 58, 3)):  # 圆头线帽
+        draw.ellipse([px(cx) - r, py(cy) - r, px(cx) + r, py(cy) + r], fill=INK)
+    draw.ellipse([px(16), py(14), px(48), py(34)], fill=ACCENT)    # 靠梁的朱砂珠
+    draw.ellipse([px(21), py(41), px(43), py(55)], fill=GRAY_BEAD)  # 归位的灰珠
+
+    # 字标：有谱（黑体粗·朱砂）+ 掌柜（宋体·墨）——字体对比即性格
+    f_word = ImageFont.truetype(FONT_BOLD, 46)
+    draw.text((172, 92), "有谱", font=f_word, fill=ACCENT, anchor="lm")
+    width = draw.textlength("有谱", font=f_word)
+    draw.text((172 + width + 10, 92), "掌柜", font=f_brand, fill=INK, anchor="lm")
+    draw.text((174, 130), "YOUPU CLERK · PAYATHON 2026", font=f_brand_en, fill=MUTED, anchor="la")
 
     # 右上核印（圆章，微旋转）
     draw.ellipse([W - 208, 52, W - 96, 164], outline=ACCENT, width=5)

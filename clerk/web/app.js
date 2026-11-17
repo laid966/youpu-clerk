@@ -52,6 +52,15 @@ function fmtMoney(amountStr) {
 
 const CHECK_SVG = ""; // 已弃用：承诺行的勾改为「核」字印章（.seal-check），见 promiseRow
 
+// 极简算盘标（与 clerk/web/logo.svg 同源；内联是因为战报卡要随 SVG 序列化导出）
+// 梁 + 档 + 双珠：朱砂珠靠梁 = "这笔钱算定了"，灰珠归位 = 其余各安其分
+const LOGO_SVG =
+  '<svg viewBox="0 0 64 64" aria-hidden="true" style="width:100%;height:100%;display:block">' +
+  '<line x1="12" y1="10" x2="52" y2="10" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>' +
+  '<line x1="32" y1="10" x2="32" y2="58" stroke="currentColor" stroke-width="5" stroke-linecap="round" opacity=".8"/>' +
+  '<ellipse cx="32" cy="24" rx="16" ry="10" fill="#C2401D"/>' +
+  '<ellipse cx="32" cy="48" rx="11" ry="7" fill="currentColor" opacity=".35"/></svg>';
+
 // ---------------------------------------------------------------------------
 // Toast 与 Modal
 // ---------------------------------------------------------------------------
@@ -262,6 +271,7 @@ function renderLanding(seq) {
   view.innerHTML =
     '<section class="hero container">' +
       "<div>" +
+        '<span class="hero-logo">' + LOGO_SVG + "</span>" +
         '<span class="hero-badge">' + esc(t("hero.badge")) + "</span>" +
         '<h1 style="white-space:pre-line">' + esc(t("hero.title")) + "</h1>" +
         '<p class="sub">' + esc(t("hero.sub")) + "</p>" +
@@ -911,10 +921,10 @@ function buildReportCard(data) {
     'color:#C2401D;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
     'transform:rotate(-9deg);' + serif + ';font-size:38px;font-weight:700;opacity:.92">核</div>' +
     '<div style="display:flex;align-items:center;gap:10px">' +
-      '<span style="display:inline-flex;align-items:center;justify-content:center;height:30px;padding:0 9px;border-radius:6px;' +
-      'background:#C2401D;color:#FFF6EE;' + serif + ';font-size:16px;font-weight:700;letter-spacing:.1em;transform:rotate(-2deg)">有谱</span>' +
-      '<span style="font-weight:700;font-size:18px;' + serif + ';letter-spacing:.14em">掌柜</span>' +
-      '<span style="color:#A79C8E;font-size:10px;letter-spacing:.18em">YOUPU CLERK</span>' +
+      '<span style="width:34px;height:34px;color:#221D18;flex:none">' + LOGO_SVG + "</span>" +
+      '<span style="font-weight:800;font-size:17px;letter-spacing:.06em;font-family:-apple-system,\'Segoe UI\',\'PingFang SC\',\'Microsoft YaHei\',sans-serif">有谱</span>' +
+      '<span style="font-weight:400;font-size:17px;' + serif + ';letter-spacing:.14em">掌柜</span>' +
+      '<span style="color:#A79C8E;font-size:9px;letter-spacing:.2em">YOUPU CLERK</span>' +
       '<span style="color:#A79C8E;font-size:12px;margin-left:8px">' + esc(data.day || new Date().toISOString().slice(0, 10)) + "</span>" +
     "</div>" +
     "<div>" +
