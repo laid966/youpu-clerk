@@ -55,14 +55,10 @@ h1, h2, h3, .brand-name { font-family: var(--font-display); }
   color: var(--paper);
   border-bottom: 3px double var(--seal);
 }
-.brand { display: flex; align-items: center; gap: 10px; }
-/* 图形标：极简算盘（梁+档+双珠）。currentColor 让它随底色换墨/纸色；朱砂珠永远朱砂 */
-.brand-logo { width: 30px; height: 30px; color: #F4EFE4; transform: rotate(-2deg); }
-/* 字标对比：有谱=现代黑体粗，掌柜=宋体细——一个字标里两种性格 */
-.brand-name { font-size: 18px; letter-spacing: .1em; display: inline-flex; align-items: baseline; gap: 2px; }
-.brand-name .wm-strong { font-family: var(--font-ui); font-weight: 800; color: #FFF6EE; }
-.brand-name .wm-light { font-family: var(--font-display); font-weight: 400; color: #D8CFC2; }
-.brand-name i { font-style: normal; font-family: var(--font-ui); font-weight: 400; color: var(--ink-faint); font-size: 9.5px; letter-spacing: .22em; margin-left: 8px; }
+.brand { display: flex; align-items: center; }
+/* 顶栏左上 = 纯图形标（作者定：文字标题去掉，全用 logo）。名字靠 title/aria 与页面 title 承载 */
+.brand-logo { width: 34px; height: 34px; color: #F4EFE4; transform: rotate(-2deg); transition: transform .15s; }
+.brand:hover .brand-logo { transform: rotate(0deg) scale(1.06); }
 .hero-logo { width: 72px; height: 72px; color: var(--ink); transform: rotate(-3deg); margin-bottom: 18px; display: block; }
 .nav { display: flex; gap: 6px; margin-left: auto; }
 .nav a {
