@@ -272,7 +272,6 @@ function renderLanding(seq) {
     '<section class="hero container">' +
       "<div>" +
         '<span class="hero-logo">' + LOGO_SVG + "</span>" +
-        '<span class="hero-badge">' + esc(t("hero.badge")) + "</span>" +
         '<h1 style="white-space:pre-line">' + esc(t("hero.title")) + "</h1>" +
         '<p class="sub">' + esc(t("hero.sub")) + "</p>" +
         '<div class="ctas">' +

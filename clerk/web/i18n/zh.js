@@ -3,7 +3,6 @@
 export default {
   nav: { demo: "演示", app: "工作台", pricing: "定价" },
   hero: {
-    badge: "PAYATHON 2026 · Vibe Pay 赛道参赛作品",
     title: "话是 AI 说的，\n钱是程序算的",
     sub: "有谱掌柜是二手卖家的数字店员：买家来砍价，它按你定的底价制度给出回复与还价——每一次让步都在授权之内，每一句报价都有规则可查。",
     ctaDemo: "看 60 秒演示",

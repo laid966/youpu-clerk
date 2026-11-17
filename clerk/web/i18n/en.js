@@ -2,7 +2,6 @@
 export default {
   nav: { demo: "Demo", app: "Workbench", pricing: "Pricing" },
   hero: {
-    badge: "PAYATHON 2026 · Vibe Pay Track Entry",
     title: "The AI talks.\nThe program counts the money.",
     sub: "YouPu Clerk is a digital shop assistant for resellers: when a buyer bargains, it replies and counters strictly within the floor-price policy you set — every concession authorized, every quoted number traceable to a rule.",
     ctaDemo: "Watch the 60s demo",
