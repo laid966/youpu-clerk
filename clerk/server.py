@@ -77,6 +77,20 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def disable_heuristic_caching(request: Request, call_next):
+    """全站禁止浏览器启发式缓存（开发期与评审期的命门）。
+
+    真实事故：index.html 被浏览器启发式缓存吃住、styles.css 却更新了——
+    旧 HTML + 新 CSS 拼成弗兰肯斯坦页面，作者连看三次都"还是不对"。
+    no-cache 不是不缓存：仍走 ETag 重验证（命中 304 几乎零成本），
+    但**每次都问服务器要最新版**，杜绝跨代混搭。
+    """
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
 # --------------------------------------------------------------------------- #
 # 错误映射：每类异常一个稳定错误码（前端按 code 查 i18n 字典，见契约 §0）
 # --------------------------------------------------------------------------- #

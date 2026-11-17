@@ -54,6 +54,11 @@ class TestHealthAndStatic:
             assert response.status_code == 200, asset
             assert len(response.content) > 0, asset
 
+    def test_no_heuristic_caching(self, client):
+        """弗兰肯斯坦页面事故的回归测试：每个响应都必须带 no-cache 重验证头。"""
+        for path in ("/", "/styles.css", "/app.js"):
+            assert "no-cache" in client.get(path).headers["cache-control"], path
+
 
 class TestItemsApi:
     def test_create_with_smart_default_floor(self, client):
