@@ -153,6 +153,14 @@ export const api = {
   payNotifyDev: (outTradeNo, amount) =>
     call("POST", "/api/pay/notify-dev", { out_trade_no: outTradeNo, amount }),
   payQuery: (outTradeNo) => call("POST", "/api/pay/query", { out_trade_no: outTradeNo }),
+  makeCopy: (payload) =>
+    IS_MOCK
+      ? Promise.resolve({
+          text: payload.title + "\n[Condition] ____\n[Includes] ____\n(mock template draft)",
+          source: "template",
+          guardrail_hits: [],
+        })
+      : call("POST", "/api/copy", payload),
   entitlements: () =>
     IS_MOCK
       ? Promise.resolve({ plan: "free", active: false, expires_at: null, quota: { used_today: 0, free_limit: 10 } })

@@ -144,6 +144,18 @@ class TestQuotaWall:
         assert body["quota"]["used_today"] == 1
 
 
+class TestCopyEndpoint:
+    def test_copy_returns_draft(self, client):
+        body = client.post("/api/copy", json={"title": "机械键盘 87 键", "hints": "九成新"}).json()
+        assert body["source"] == "template"  # client fixture 注入 TemplateJudge
+        assert "机械键盘 87 键" in body["text"]
+        assert "九成新" in body["text"]
+
+    def test_copy_requires_title(self, client):
+        response = client.post("/api/copy", json={"title": "  "})
+        assert response.status_code == 400
+
+
 class TestPayFlow:
     def test_products_lists_tiers(self, client):
         body = client.get("/api/pay/products").json()

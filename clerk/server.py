@@ -691,6 +691,27 @@ def agent_bargain(payload: AgentBargainRequest, request: Request):
     }
 
 
+class CopyRequest(BaseModel):
+    title: str
+    hints: str = ""
+    language: str = "zh"
+
+
+@app.post("/api/copy")
+def make_copy(payload: CopyRequest, request: Request) -> dict:
+    """Listing 文案生成（免费钩子）。模型只搭骨架，事实只来自卖家输入。"""
+    token = require_token(request)
+    with get_conn() as conn:
+        return service.make_listing(
+            token=token,
+            title=payload.title,
+            hints=payload.hints,
+            language=payload.language,
+            judge=resolve_judge(),
+            conn=conn,
+        )
+
+
 # --------------------------------------------------------------------------- #
 # 桥接层：扩展搬消息进来（inbox）/ 卖家在本站发出去（outbox+ack）
 # --------------------------------------------------------------------------- #

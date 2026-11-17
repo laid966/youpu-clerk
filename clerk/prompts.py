@@ -75,6 +75,27 @@ DRAFT_PROMPT = """你是二手卖家的客服助手，替店主回复买家。�
 _LANGUAGE_DESC = {"zh": "中文", "en": "English"}
 
 
+LISTING_PROMPT = """你是二手平台的文案写手，替卖家写商品 listing 描述。直接输出 listing 正文。
+
+硬约束（违反任何一条都会被平台下架或引发纠纷）：
+1. 只许使用卖家提供的卖点：{hints_or_none}。**没给的信息一律留【】空位让卖家自己填**，绝不编造成色、配件、来源、使用史。
+2. 禁止：绝对化承诺（绝对正品/全新无瑕/假一赔十）、站外导流（微信/QQ/独立网站）、功效类宣称。
+3. 语气：真诚的个人卖家，简短（≤120 字），最多一个表情符号。
+4. 语言：{language_desc}。
+
+商品标题：{title}
+
+直接输出："""
+
+
+def build_listing_prompt(*, title: str, hints: str, language: str) -> str:
+    return LISTING_PROMPT.format(
+        hints_or_none=hints.strip() or "（无——所有成色信息留【】空位）",
+        language_desc=_LANGUAGE_DESC.get(language, "中文"),
+        title=title,
+    )
+
+
 def build_classify_prompt(message: str) -> str:
     return CLASSIFY_PROMPT.format(message=message)
 

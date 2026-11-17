@@ -12,10 +12,12 @@ from agent.judge import FakeJudge
 import clerk.db as db
 from clerk import config
 from clerk.service import (
+    ClerkError,
     ItemNotFound,
     QuotaExceeded,
     adopt,
     daily_report,
+    make_listing,
     suggest,
 )
 from clerk.templates import TemplateJudge
@@ -306,3 +308,42 @@ class TestDailyReport:
         assert report["counters"] == 1
         assert report["concessions_adopted"] == 1
         assert report["adopted"] == 1
+
+
+class TestListing:
+    """Listing 文案：免费钩子。事实只来自卖家输入，模型只搭骨架。"""
+
+    def test_template_path_leaves_blanks(self, env):
+        result = make_listing(token=TOKEN, title="机械键盘 87 键", judge=TemplateJudge(), conn=env["conn"])
+        assert result["source"] == "template"
+        assert "机械键盘 87 键" in result["text"]
+        assert "【成色】" in result["text"]  # 没给的信息留空位，不编造
+
+    def test_hints_are_appended_verbatim(self, env):
+        result = make_listing(
+            token=TOKEN, title="键盘", hints="九成新，带原盒", judge=TemplateJudge(), conn=env["conn"]
+        )
+        assert "九成新，带原盒" in result["text"]
+
+    def test_llm_path(self, env):
+        judge = FakeJudge("九成新仅用两次，带原盒，诚心出")
+        result = make_listing(token=TOKEN, title="Switch 卡带", judge=judge, conn=env["conn"])
+        assert result["source"] == "llm"
+        assert result["text"] == "九成新仅用两次，带原盒，诚心出"
+
+    def test_guardrail_replaces_diversion(self, env):
+        judge = FakeJudge("加我微信私聊哈，绝对正品放心买")
+        result = make_listing(token=TOKEN, title="键盘", judge=judge, conn=env["conn"])
+        assert result["guardrail_hits"]
+        assert result["source"] == "template"
+        assert "微信" not in result["text"]
+
+    def test_empty_title_raises(self, env):
+        with pytest.raises(ClerkError):
+            make_listing(token=TOKEN, title="   ", judge=TemplateJudge(), conn=env["conn"])
+
+    def test_listing_does_not_consume_user_quota(self, env, monkeypatch):
+        """获客钩子不设墙：个人额度为 0 也能生成（全站预算另算）。"""
+        monkeypatch.setattr(config, "FREE_DAILY_SUGGESTIONS", 0)
+        result = make_listing(token=TOKEN, title="键盘", judge=TemplateJudge(), conn=env["conn"])
+        assert result["source"] == "template"

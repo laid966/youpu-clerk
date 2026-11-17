@@ -9,6 +9,9 @@ import EN from "./i18n/en.js";
 const DICTS = { zh: ZH, en: EN };
 
 function initialLang() {
+  // ?lang=en 优先（海外分发链接可强制语言）→ localStorage → 浏览器语言
+  const param = new URLSearchParams(location.search).get("lang");
+  if (param === "zh" || param === "en") return param;
   const saved = localStorage.getItem("clerk.lang");
   if (saved === "zh" || saved === "en") return saved;
   return (navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en";
@@ -663,7 +666,8 @@ function itemCard() {
       '<div class="kv"><span>' + t("demo.asking") + '</span><span class="v">' + fmtMoney(activeItem.asking_price) + "</span></div>" +
       (IS_MOCK
         ? '<div class="kv"><span>' + t("wb.floor") + '</span><span class="v">' + fmtMoney(activeItem.floor_price) + "</span></div>"
-        : floorSlider(activeItem))
+        : floorSlider(activeItem) +
+          '<div style="margin-top:10px"><button class="btn small" data-act="wb-copy">' + t("wb.copyBtn") + "</button></div>")
     : '<div class="empty">' + t("wb.noItems") + "</div>";
 
   const newForm = wb.showNew
@@ -1049,6 +1053,16 @@ document.addEventListener("click", async (event) => {
   }
   if (act === "buy") { buyFlow(actor.dataset.code || "pass30_early"); return; }
   if (act === "pay-sim") { paySimulate(actor.dataset.no, actor.dataset.amount); return; }
+  if (act === "wb-copy") { openCopyModal(); return; }
+  if (act === "copy-run") { runCopy(); return; }
+  if (act === "copy-copy") {
+    const out = document.getElementById("copyOut");
+    if (out && out.value) {
+      navigator.clipboard.writeText(out.value);
+      toast(t("wb.copyCopied"), "ok");
+    }
+    return;
+  }
   if (act === "card-download") { downloadReportCard(); return; }
 });
 
@@ -1136,6 +1150,45 @@ function stopPayPolling() {
   if (payPollTimer) {
     clearInterval(payPollTimer);
     payPollTimer = null;
+  }
+}
+
+// ---- Listing 文案（免费钩子）：模型只搭骨架，事实只来自卖家输入 ----
+
+function openCopyModal() {
+  const item = activeItemOf();
+  openModal(
+    '<h3 style="margin:0 0 14px">' + esc(t("wb.copyModalTitle")) + "</h3>" +
+    '<div class="form-grid">' +
+      '<input id="copyTitle" value="' + esc(item ? item.title : "") + '" placeholder="' + esc(t("wb.itemTitlePh")) + '"/>' +
+      '<textarea id="copyHints" rows="3" placeholder="' + esc(t("wb.copyHintsPh")) + '" style="border:1.5px solid var(--line-strong);border-radius:5px;padding:7px 10px;font:inherit;background:var(--paper);color:var(--ink)"></textarea>' +
+      '<button class="btn primary" data-act="copy-run">' + esc(t("wb.copyRun")) + "</button>" +
+      '<textarea id="copyOut" rows="8" readonly style="border:1.5px dashed var(--line-strong);border-radius:5px;padding:9px 10px;font:inherit;background:var(--paper);color:var(--ink)"></textarea>' +
+      '<div class="hint" id="copySource"></div>' +
+      '<button class="btn" data-act="copy-copy">' + esc(t("wb.copyCopiedBtn")) + "</button>" +
+    "</div>"
+  );
+}
+
+async function runCopy() {
+  const titleEl = document.getElementById("copyTitle");
+  const hintsEl = document.getElementById("copyHints");
+  const outEl = document.getElementById("copyOut");
+  const srcEl = document.getElementById("copySource");
+  if (!titleEl || !titleEl.value.trim()) {
+    toast(t("wb.copyNeedTitle"), "bad");
+    return;
+  }
+  try {
+    const result = await api.makeCopy({
+      title: titleEl.value.trim(),
+      hints: (hintsEl && hintsEl.value) || "",
+      language: state.lang,
+    });
+    if (outEl) outEl.value = result.text;
+    if (srcEl) srcEl.textContent = result.source === "llm" ? t("wb.copySourceLlm") : t("wb.copySourceTemplate");
+  } catch (error) {
+    toastErr(error);
   }
 }
 

@@ -30,19 +30,21 @@ from typing import Any
 
 from clerk import config, db, pay
 from clerk.bargain import BargainDecision, BargainError, BargainFacts, decide_bargain, to_money
-from clerk.guardrails import scan_all
 from clerk.prompts import (
     build_classify_prompt,
     build_draft_prompt,
+    build_listing_prompt,
     parse_classification,
     sanitize_draft,
 )
+from clerk.guardrails import scan_all, scan_reply
 from clerk.templates import (
     Classification,
     TemplateJudge,
     select_judge,
     template_classify,
     template_draft,
+    template_listing,
 )
 
 __all__ = [
@@ -55,6 +57,7 @@ __all__ = [
     "SOURCES",
     "adopt",
     "daily_report",
+    "make_listing",
     "suggest",
 ]
 
@@ -265,6 +268,64 @@ def adopt(
             )
         used = db.count_adopted_counters(conn, row["conversation_id"], row["item_id"])
         return {"ok": True, "concessions_used": used}
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def make_listing(
+    *,
+    token: str,
+    title: str,
+    hints: str = "",
+    language: str = "zh",
+    judge: Any = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
+    """Listing 文案生成：免费层的获客钩子（定价页承诺过的那一项）。
+
+    纪律：
+    - **模型只搭骨架，事实只来自卖家输入**——没给的成色/配件信息留【】空位，绝不编造
+      （编造成色是二手纠纷的头号来源；prompt 与模板双侧都钉死这条）
+    - 护栏词表与回复路径共用（站外导流/绝对化承诺发出去就是下架）；
+      数字白名单不适用（listing 正文本来就可以含价格）
+    - LLM 成本计入全站预算；**不消耗个人免费额度**——获客钩子不能设墙
+    """
+    title = (title or "").strip()
+    if not title:
+        raise ClerkError("listing 标题不能为空")
+
+    own_conn = conn is None
+    conn = conn if conn is not None else db.open_db()
+    try:
+        db.ensure_user(conn, token)
+        if judge is None:
+            judge = select_judge()
+
+        llm_used = False
+        text: str | None = None
+        if not isinstance(judge, TemplateJudge):
+            _enforce_global_budget(conn)
+            try:
+                raw = judge.complete(
+                    build_listing_prompt(title=title, hints=hints, language=language)
+                )
+                text = sanitize_draft(raw)
+            except Exception:  # noqa: BLE001 — 模型挂了钩子不能挂
+                text = None
+            llm_used = text is not None
+        if not llm_used:
+            text = template_listing(title=title, hints=hints, language=language)
+
+        hits = scan_reply(text)
+        source = "llm" if llm_used else "template"
+        if hits:
+            # 命中禁语（模型写了"加微信/绝对正品"之类）：整段换模板，同回复路径的规矩
+            text = template_listing(title=title, hints=hints, language=language)
+            source = "template"
+        if llm_used:
+            db.bump_usage(conn, GLOBAL_USAGE_TOKEN, db.today_shanghai())
+        return {"text": text, "source": source, "guardrail_hits": [hit.to_dict() for hit in hits]}
     finally:
         if own_conn:
             conn.close()

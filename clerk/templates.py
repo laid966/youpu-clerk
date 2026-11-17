@@ -191,3 +191,39 @@ def template_draft(
     )
     offer = str(classification.offer) if classification.offer is not None else asking
     return template.format(asking=asking, price=price, offer=offer)
+
+
+# --------------------------------------------------------------------------- #
+# Listing 文案模板（免费钩子功能的无 LLM 兜底）
+#
+# 纪律：模板**不重写事实**——卖家没给的信息一律留【】空位。
+# 编造成色是二手交易纠纷的头号来源，宁可留空让卖家填。
+# --------------------------------------------------------------------------- #
+
+_LISTING_TEMPLATES = {
+    "zh": (
+        "{title}\n"
+        "【成色】____（建议填：使用时长 / 痕迹 / 维修史）\n"
+        "【配件】____（主机 / 盒子 / 充电器 / 发票）\n"
+        "【转出原因】____\n"
+        "价格好商量，诚心要的可以聊；有问题随时问，我的店员回复很快——"
+        "它的每次让步都在我授权范围内，且有据可查。"
+    ),
+    "en": (
+        "{title}\n"
+        "[Condition] ____ (how long used / marks / repair history)\n"
+        "[Includes] ____ (item / box / charger / receipt)\n"
+        "[Reason for selling] ____\n"
+        "Price is negotiable within reason — my shop assistant replies fast, "
+        "and every concession stays inside my authorized floor."
+    ),
+}
+
+
+def template_listing(*, title: str, hints: str, language: str) -> str:
+    lang = language if language in _LISTING_TEMPLATES else "zh"
+    text = _LISTING_TEMPLATES[lang].format(title=title)
+    if hints.strip():
+        prefix = "卖家备注：" if lang == "zh" else "Seller notes: "
+        text = text + "\n" + prefix + hints.strip()
+    return text
