@@ -297,6 +297,20 @@ class TestSelectJudge:
 
         assert isinstance(select_judge(), TemplateJudge)
 
+    def test_build_failure_falls_back_to_template(self, monkeypatch):
+        """模型客户端构造期故障（坏代理环境/缺依赖/密钥格式错）→ 确定性降级，不许 500。"""
+        import agent.judge
+
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("Invalid port: ':1]'（模拟坏代理环境）")
+
+        monkeypatch.setattr(agent.judge, "build_judge", boom)
+        from clerk.templates import select_judge
+
+        assert isinstance(select_judge(), TemplateJudge)
+
 
 class TestDailyReport:
     def test_report_counts(self, env):

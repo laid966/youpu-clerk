@@ -216,6 +216,11 @@ function renderChrome(route) {
   document.querySelectorAll("#langSwitch button").forEach((b) =>
     b.classList.toggle("active", b.dataset.lang === state.lang));
   document.getElementById("footerText").textContent = t("footer.disclaimer");
+  const mockGlobal = document.getElementById("mockGlobal");
+  if (mockGlobal) {
+    mockGlobal.hidden = !IS_MOCK;
+    if (IS_MOCK) mockGlobal.textContent = t("common.mockGlobal");
+  }
   document.documentElement.lang = state.lang === "zh" ? "zh-CN" : "en";
   // 标题与描述也随语言走——海外用户分享/收藏时看到的是英文
   document.title = state.lang === "zh" ? "有谱掌柜 · 可信 AI 店员" : "YouPu Clerk · The Trustworthy AI Shop Clerk";

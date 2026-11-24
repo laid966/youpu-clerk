@@ -99,13 +99,21 @@ def select_judge():
 
     先 import agent.judge 再查环境变量——agent.judge 在 import 时会 load_dotenv，
     顺序反了就会"密钥明明在 .env 里却读不到"（本仓库踩过的坑，见 agent/judge.py 注释）。
+
+    **构造失败也降级**（2026-11-24 真实事故：机器代理环境变量被改成 httpx 解析不了的值，
+    DeepSeek 客户端在构造期就炸——若不让它降级，每条询价都会 500）。
+    模型层的环境问题不许变成产品层的事故：话术降级为模板，决策链路毫发无损。
     """
     import os
 
     import agent.judge  # noqa: F401 — 触发 .env 加载
 
     if os.getenv("DEEPSEEK_API_KEY"):
-        return agent.judge.build_judge(use_cache=True)
+        try:
+            return agent.judge.build_judge(use_cache=True)
+        except Exception as exc:  # noqa: BLE001 — 构造期故障：依赖/代理/密钥格式
+            print(f"[clerk] judge 构造失败，降级 TemplateJudge：{exc}")
+            return TemplateJudge()
     return TemplateJudge()
 
 

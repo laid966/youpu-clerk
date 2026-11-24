@@ -1,10 +1,17 @@
-// API 层：真实模式走 fetch + X-Clerk-User 头；?mock=1 时用 clerk.capture_mock
+// API 层：真实模式走 fetch + X-Clerk-User 头；mock 模式用 clerk.capture_mock
 // 从真实后端抓取的响应数据回放（mock.js 头部注释说明了生成方式）。
 // 原则：mock 与真实 API 返回**完全同形**——视图层不知道也不该知道自己在哪种模式。
-
+//
+// 自动 mock 的两种宿主：
+//   ?mock=1          手动强制
+//   *.github.io      GitHub Pages 静态托管——没有后端可言，必须离线预览
+//   file://          本地直接开文件
 import mock from "./mock.js";
 
-export const IS_MOCK = new URLSearchParams(location.search).has("mock");
+export const IS_MOCK =
+  new URLSearchParams(location.search).has("mock") ||
+  location.hostname.endsWith(".github.io") ||
+  location.protocol === "file:";
 
 function makeToken() {
   // ?token= 用于跨端身份打通：Chrome 扩展的「打开工作台」按钮带着扩展自己的 token

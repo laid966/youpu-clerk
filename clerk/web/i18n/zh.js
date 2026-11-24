@@ -202,6 +202,7 @@ export default {
     loading: "加载中…",
     retry: "重试",
     lang: "回复语言",
+    mockGlobal: "离线预览版：数据抓自真实后端、只读可玩；真实议价与支付见正式部署站",
   },
   footer: {
     disclaimer: "演示环境商品与对话均为虚构 · 本工具不接触交易资金 · 让价的每一分钱都由你授权",

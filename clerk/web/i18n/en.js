@@ -196,7 +196,8 @@ export default {
     BRIDGE_ERROR: "Bridge session error",
     generic: "Something went wrong",
   },
-  common: { close: "Close", loading: "Loading…", retry: "Retry", lang: "reply language" },
+  common: { close: "Close", loading: "Loading…", retry: "Retry", lang: "reply language",
+    mockGlobal: "Offline preview: data captured from the real backend, read-only but fully playable; live bargaining & payments on the deployed site" },
   footer: {
     disclaimer: "Demo items and conversations are fictional · This tool never touches trade funds · every cent conceded is authorized by you",
   },
