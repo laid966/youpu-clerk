@@ -2,6 +2,7 @@
 .env
 .env.local
 *.key
+data/alipay_*
 
 # ---- 本地真实数据（只用于私下验证，绝不入库、绝不写进文档）----
 data/local/
