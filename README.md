@@ -1,5 +1,8 @@
 # rulecheck → auditkit
 
+[![CI](https://github.com/laid966/youpu-clerk/actions/workflows/ci.yml/badge.svg)](https://github.com/laid966/youpu-clerk/actions/workflows/ci.yml)
+[![Pages](https://img.shields.io/badge/preview-laid966.github.io%2Fyoupu--clerk-C2401D)](https://laid966.github.io/youpu-clerk/)
+
 > ## 📢 本仓库现在有两个产品
 >
 > **1. 有谱掌柜（clerk/）—— PAYATHON 2026 Vibe 赛道参赛作品**
