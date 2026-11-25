@@ -1,0 +1,37 @@
+name: Pages
+
+# 把 clerk/web（纯静态前端）部署到 GitHub Pages = 免费公网离线预览版。
+# 前端在 *.github.io 下自动切 mock 模式（clerk/web/api.js），数据抓自真实后端，
+# 演示/落地页/战报卡/双语全可玩；真实议价与支付在正式部署站（见 docs/33）。
+#
+# 为什么用 Actions 部署而不是 branch 模式：branch 模式只允许 / 或 /docs 两个目录，
+# 我们的静态产物在 clerk/web（与后端同仓但不混合）。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: true
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: clerk/web
+      - id: deployment
+        uses: actions/deploy-pages@v4
