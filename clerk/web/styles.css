@@ -496,3 +496,10 @@ h1, h2, h3, .brand-name { font-family: var(--font-display); }
   .footer { font-size: 11px; padding: 12px 10px; }
   .footer a { margin-left: 8px; }
 }
+
+/* 超窄屏（<400px）：字标让位给图形标——顶栏只剩 logo+导航+语言，永不出血 */
+@media (max-width: 400px) {
+  .brand-name { display: none; }
+  .nav a { padding: 6px 5px; font-size: 12px; }
+}
+}
