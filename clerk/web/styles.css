@@ -84,6 +84,8 @@ h1, h2, h3, .brand-name { font-family: var(--font-display); }
   background: var(--ink); color: #B9AE9E;
   padding: 14px 24px; text-align: center; font-size: 12.5px; letter-spacing: .05em;
 }
+.footer a { color: #C9BCA4; margin-left: 12px; text-decoration: none; border-bottom: 1px dotted #57503F; }
+.footer a:hover { color: #FFF6EE; border-bottom-color: var(--seal); }
 
 /* ---------- 印章与匾额标签 ---------- */
 .sec-head { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 22px; }
