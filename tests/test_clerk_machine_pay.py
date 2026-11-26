@@ -244,3 +244,47 @@ class TestEndpointFlow:
         assert bad.status_code == 400
         good = client.post("/api/agent/bargain", json=self.BARGAIN_PAYLOAD, headers={"Payment-Proof": proof})
         assert good.status_code == 200
+
+
+class TestMachineDemoMode:
+    """演示模式（MACHINE_PAY_DEMO=1）：评委零凭证零签约走通 A402 全时序，占位凭证不过真钱。"""
+
+    BODY = {"asking_price": "399.00", "buyer_offer": "300.00"}
+
+    @staticmethod
+    def _demo_proof(out_trade_no: str, token: str = "DEMO-PAID") -> str:
+        return base64.urlsafe_b64encode(
+            json.dumps(
+                {"protocol": {"payment_proof": token, "trade_no": out_trade_no}, "method": {"client_session": "demo"}},
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).rstrip(b"=").decode("ascii")
+
+    def test_demo_flow_and_replay_guard(self, client, monkeypatch):
+        monkeypatch.setenv("MACHINE_PAY_DEMO", "1")
+        first = client.post("/api/agent/bargain", json=self.BODY)
+        assert first.status_code == 402
+        invoice = machine_pay.decode_payment_needed(first.headers["payment-needed"])
+        assert invoice["protocol"]["amount"] == "0.01"
+        assert invoice["protocol"]["seller_signature"], "账单必须带签名（真钥或占位）"
+        # 无私钥时演示模式落占位签名（评委机器零 .env 也能签账单）
+        monkeypatch.delenv("ALIPAY_PRIVATE_KEY", raising=False)
+        placeholder = machine_pay.build_invoice("MPDEMO0000000000PLACEHLD")
+        assert placeholder["protocol"]["seller_signature"].startswith("DEMO-SIGNATURE-")
+        monkeypatch.setenv("ALIPAY_PRIVATE_KEY", "")
+
+        proof = self._demo_proof(invoice["protocol"]["out_trade_no"])
+        second = client.post("/api/agent/bargain", json=self.BODY, headers={"Payment-Proof": proof})
+        assert second.status_code == 200, second.text
+        assert second.json()["decision"]["kind"] == "counter"
+
+        replay = client.post("/api/agent/bargain", json=self.BODY, headers={"Payment-Proof": proof})
+        assert replay.status_code == 402
+        assert "PROOF_REUSED" in replay.text
+
+    def test_demo_rejects_foreign_proof(self, client, monkeypatch):
+        monkeypatch.setenv("MACHINE_PAY_DEMO", "1")
+        proof = self._demo_proof("MP20260101000000AAAAAA", token="REAL-LOOKING")
+        response = client.post("/api/agent/bargain", json=self.BODY, headers={"Payment-Proof": proof})
+        assert response.status_code == 402
+        assert "PROOF_INVALID" in response.text

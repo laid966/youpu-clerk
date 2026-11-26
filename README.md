@@ -3,6 +3,20 @@
 [![CI](https://github.com/laid966/youpu-clerk/actions/workflows/ci.yml/badge.svg)](https://github.com/laid966/youpu-clerk/actions/workflows/ci.yml)
 [![Pages](https://img.shields.io/badge/preview-laid966.github.io%2Fyoupu--clerk-C2401D)](https://laid966.github.io/youpu-clerk/)
 
+> ## 🏛 评委 / Agent 体验指南（三条支付腿，零凭证可跑）
+>
+> ```bat
+> :: 1 起服务（演示模式：A402 协议全时序，占位凭证不过真钱）
+> set MACHINE_PAY_DEMO=1
+> .venv\Scripts\python.exe -m uvicorn clerk.server:app --port 8100
+> :: 2 跑付费智能体客户端：402 账单 → 凭证 → 交付决策 → 防重放
+> .venv\Scripts\python.exe tools\a42_demo_client.py
+> :: 3 人类视角：浏览器开 http://127.0.0.1:8100 （演示/工作台/台账/战报）
+> ```
+>
+> 支付集成三腿：**Vibe Pay**（网页收银台 page.pay，人类买家）· **Machine Pay**（A402 按量付费，AI 买家，`skills/youpu-bargain/SKILL.md` 为 Skill Pay 清单）· 护栏/台账/授权引擎为共同底座。
+> 真钱路径：配齐 `MACHINE_PAY_*` / `ALIPAY_*` 凭证即切换，协议与代码零改动（见 docs/30、docs/38、docs/41）。
+
 > ## 📢 本仓库现在有两个产品
 >
 > **1. 有谱掌柜（clerk/）—— PAYATHON 2026 Vibe 赛道参赛作品**

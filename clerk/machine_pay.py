@@ -92,8 +92,19 @@ def _env(name: str, default: str = "") -> str:
     return (os.getenv(name) or default).strip()
 
 
+def is_demo_mode() -> bool:
+    """演示模式：MACHINE_PAY_DEMO=1——评委/展览零凭证零签约走通 A402 全协议。
+
+    诚实纪律：演示模式的签名/凭证全是占位（DEMO-SIGNATURE / DEMO-PAID），
+    不过真钱、不上真履约上报；台账里记为演示履约。真钱永远走凭证齐全的生产路径。
+    """
+    return _env("MACHINE_PAY_DEMO") == "1"
+
+
 def is_configured() -> bool:
-    """A2A 三件套 + 签名私钥齐了才算配置完成。"""
+    """A2A 三件套 + 签名私钥齐了才算配置完成；演示模式视为已配置（占位凭证）。"""
+    if is_demo_mode():
+        return True
     return bool(
         _env("MACHINE_PAY_SELLER_ID")
         and _env("MACHINE_PAY_SELLER_APP_ID")
@@ -111,6 +122,10 @@ def build_invoice(out_trade_no: str, resource_id: str = RESOURCE_ID) -> dict:
     """生成并签名一份 Payment-Needed 账单（结构严格按文档示例）。"""
     seller_id = _env("MACHINE_PAY_SELLER_ID")
     service_id = _env("MACHINE_PAY_SERVICE_ID")
+    demo = is_demo_mode()
+    if demo:
+        seller_id = seller_id or "2088000000000000"  # 明显的假 2088：演示占位
+        service_id = service_id or "DEMO-SERVICE"
     if not (seller_id and service_id):
         raise PayError("Machine Pay 凭证不全，无法签发账单")
 
@@ -130,9 +145,12 @@ def build_invoice(out_trade_no: str, resource_id: str = RESOURCE_ID) -> dict:
         "service_id": service_id,
     }
     assert tuple(sorted(sign_source)) == _SIGN_FIELDS, "签名字段与文档不符——一个都不能差"
-    signature = pay_vibe.sign_content(
-        pay_vibe.build_sign_content(sign_source), pay_vibe.load_private_key()
-    )
+    if demo and not _env("ALIPAY_PRIVATE_KEY"):
+        signature = "DEMO-SIGNATURE-" + out_trade_no
+    else:
+        signature = pay_vibe.sign_content(
+            pay_vibe.build_sign_content(sign_source), pay_vibe.load_private_key()
+        )
 
     return {
         "protocol": {
@@ -148,7 +166,7 @@ def build_invoice(out_trade_no: str, resource_id: str = RESOURCE_ID) -> dict:
         "method": {
             "seller_name": _env("MACHINE_PAY_SELLER_NAME", config.PRODUCT_NAME),
             "seller_id": seller_id,
-            "seller_app_id": _env("MACHINE_PAY_SELLER_APP_ID"),
+            "seller_app_id": _env("MACHINE_PAY_SELLER_APP_ID") or ("DEMO-APP" if demo else ""),
             "goods_name": GOODS_NAME,
             "seller_unique_id_key": "seller_id",
             "service_id": service_id,
@@ -186,9 +204,29 @@ def parse_payment_proof(header: str) -> dict:
 
 
 def verify_proof(proof: dict) -> dict:
-    """调 alipay.aipay.agent.payment.verify 验凭证，返回网关业务响应。"""
+    """调 alipay.aipay.agent.payment.verify 验凭证，返回网关业务响应。
+
+    演示模式（MACHINE_PAY_DEMO=1）：不调网关，按占位凭证规则本地出 verdict——
+    只认 DEMO-PAID 前缀，trade_no 必须是我们签发的 MP 前缀单号（防随便伪造）。
+    """
     protocol = proof["protocol"]
     method = proof.get("method") or {}
+    if is_demo_mode():
+        proof_token = str(protocol["payment_proof"])
+        trade = str(protocol["trade_no"])
+        if not proof_token.startswith("DEMO-PAID"):
+            raise PayError("演示模式只接受 DEMO-PAID 前缀的占位凭证")
+        if not trade.startswith(OUT_TRADE_PREFIX):
+            raise PayError(f"trade_no 不是本服务签发：{trade!r}")
+        return {
+            "code": "10000",
+            "msg": "Success（DEMO）",
+            "active": True,
+            "amount": str(to_money(config.MACHINE_PAY_PRICE)),
+            "out_trade_no": trade,
+            "trade_no": trade,
+            "resource_id": RESOURCE_ID,
+        }
     body = pay_vibe.execute_api(
         "alipay.aipay.agent.payment.verify",
         {
@@ -226,7 +264,9 @@ def check_verification(verdict: dict, *, expected_amount: Decimal | str) -> None
 
 
 def confirm_fulfillment(trade_no: str) -> bool:
-    """履约回执（尽力而为）：失败只记日志不影响交付——文档定位它就是"异步发送"。"""
+    """履约回执（尽力而为）：失败只记日志不影响交付——文档定位它就是"异步发送"。演示模式不上报。"""
+    if is_demo_mode():
+        return True
     try:
         pay_vibe.execute_api("alipay.aipay.agent.fulfillment.confirm", {"trade_no": trade_no})
         return True

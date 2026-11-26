@@ -162,6 +162,15 @@ class TestCopyEndpoint:
 
 
 class TestPayFlow:
+    @pytest.fixture(autouse=True)
+    def force_fake_adapter(self, monkeypatch):
+        """支付流测试必须与宿主 .env 无关：清掉真凭证，强制 FakeAdapter（诚实未接通路径）。
+
+        2026-11-26 事故：作者 .env 填入真凭证后适配器自动切 Vibe，
+        本类"诚实未接通"断言反被真配置打红——测试的确定性高于环境的便利性。
+        """
+        for key in ("ALIPAY_APP_ID", "ALIPAY_PRIVATE_KEY", "ALIPAY_PUBLIC_KEY", "ALIPAY_NOTIFY_URL"):
+            monkeypatch.delenv(key, raising=False)
     def test_products_lists_tiers(self, client):
         body = client.get("/api/pay/products").json()
         codes = {tier["code"] for tier in body["tiers"]}

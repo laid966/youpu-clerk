@@ -354,7 +354,10 @@ def execute_api(method: str, biz: dict) -> dict:
     params["biz_content"] = json.dumps(biz, ensure_ascii=False, separators=(",", ":"))
     signed = _signed(params)
     try:
-        response = httpx.post(_gateway(), data=signed, timeout=15.0)
+        # trust_env=False：支付链路直连网关，绝不被本机/宿主的环境变量代理劫持或打断
+        # （2026-11-26 真实事故：作者机器残留畸形代理环境变量，httpx 解析期就炸——
+        #   支付是产品的命门，环境怪癖不许碰它）
+        response = httpx.post(_gateway(), data=signed, timeout=15.0, trust_env=False)
     except httpx.HTTPError as exc:
         raise PayError(f"调用支付宝网关失败：{exc}") from exc
     text = response.text
